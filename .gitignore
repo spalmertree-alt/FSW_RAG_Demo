@@ -1,0 +1,20 @@
+# Secrets & API keys
+.streamlit/secrets.toml
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# IDE settings
+.vscode/
+
+# OS files
+Thumbs.db
+.DS_Store
+
+# Temp files
+Untitled
+
+# Large PDFs (uploaded to Gemini File Search stores directly)
+MCRP 3-01A.pdf

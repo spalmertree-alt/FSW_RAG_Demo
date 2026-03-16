@@ -1,0 +1,8 @@
+[theme]
+# Ethos Design System — Warm Minimalism
+primaryColor     = "#000000"   # --accent: black for active states, toggles, sliders
+backgroundColor  = "#FBF9F7"   # --bg: warm off-white page background
+secondaryBackgroundColor = "#f0eeeb"  # --row-alt: sidebar and input backgrounds
+textColor        = "#1a1a1a"   # --text: near-black body text
+# font is intentionally omitted — Streamlit's global font override breaks
+# Material Symbols icon rendering. Font is set via CSS injection instead.

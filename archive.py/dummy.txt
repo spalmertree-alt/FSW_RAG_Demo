@@ -1,0 +1,1 @@
+This is a test document for Gemini RAG. If you can read this, the system works.

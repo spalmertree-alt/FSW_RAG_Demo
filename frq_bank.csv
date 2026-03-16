@@ -1,0 +1,23 @@
+ID,Topic,Question_Text,Ideal_Answer
+1,Rule 5,"Define ""Look-out"" according to Rule 5.",Every vessel shall at all times maintain a proper look-out by sight and hearing as well as by all available means appropriate in the prevailing circumstances.
+2,Lights,Describe the lights for a vessel towing astern.,"A towing vessel must show two masthead lights in a vertical line (three if tow exceeds 200m), sidelights, a sternlight, and a towing light (yellow) above the sternlight."
+3,Rule 3 (Definitions),"Define the term ""underway"" according to Rule 3.","A vessel is not at anchor, or made fast to the shore, or aground."
+4,Rule 6 (Safe Speed),List the factors that all vessels must take into account when determining a safe speed.,"The state of visibility; traffic density; maneuverability of the vessel; presence of background light; state of wind, sea, and current/proximity of navigational hazards; and draft in relation to available depth."
+5,Rule 7 (Risk of Collision),How should a vessel determine if a risk of collision exists regarding an approaching vessel?,By using all available means (including radar). Risk shall be deemed to exist if the compass bearing of an approaching vessel does not appreciably change.
+6,Rule 9 (Narrow Channels),Where must a vessel keep when proceeding along a narrow channel or fairway?,As near to the outer limit of the channel or fairway which lies on her starboard side as is safe and practicable.
+7,Rule 10 (Traffic Separation),How should a vessel cross a traffic lane if obliged to do so?,On a heading as nearly as practicable at right angles to the general direction of traffic flow.
+8,Rule 13 (Overtaking),"At what angle is a vessel deemed to be ""overtaking"" another vessel?","When coming up with another vessel from a direction more than 22.5 degrees abaft her beam (at night, she would see the sternlight but neither sidelight)."
+9,Rule 15 (Crossing),"In a crossing situation between two power-driven vessels involving risk of collision, which vessel must keep out of the way?",The vessel which has the other on her own starboard side.
+10,Rule 18 (Responsibilities),Which vessels must a power-driven vessel underway keep out of the way of?,"A vessel not under command, a vessel restricted in her ability to maneuver, a vessel engaged in fishing, and a sailing vessel."
+11,Rule 21 (Definitions),"What is the arc of visibility for a ""Masthead light""?","An unbroken light over an arc of the horizon of 225 degrees, showing from right ahead to 22.5 degrees abaft the beam on either side."
+12,Rule 23 (Power-driven Lights),What lights must a power-driven vessel of 50 meters or more in length exhibit?,"A masthead light forward, a second masthead light abaft of and higher than the forward one, sidelights, and a sternlight."
+13,Rule 24 (Towing),"When the length of a tow exceeds 200 meters, what day shape must be displayed?",A diamond shape where it can best be seen.
+14,Rule 25 (Sailing),What lights does a sailing vessel underway exhibit?,Sidelights and a sternlight. (Optional: May also show Red over Green all-round lights at the masthead).
+15,Rule 26 (Fishing),What are the specific identification lights for a vessel engaged in trawling?,"Two all-round lights in a vertical line, the upper being green and the lower white."
+16,Rule 27 (NUC),Describe the lights required for a Vessel Not Under Command (NUC).,Two all-round red lights in a vertical line where they can best be seen.
+17,Rule 34 (Sound Signals),"Under International Rules, what does one short blast indicate when vessels are in sight of one another?","""I am altering my course to starboard."""
+18,Rule 34 (Sound Signals),"Under Inland Rules, what is the meaning of a signal of intent comprising two short blasts?","""I intend to leave you on my starboard side."""
+19,Rule 35 (Restricted Visibility),What sound signal is required for a power-driven vessel making way in restricted visibility?,One prolonged blast at intervals of not more than 2 minutes.
+20,Rule 35 (Restricted Visibility),What is the sound signal for a vessel not under command or restricted in ability to maneuver in restricted visibility?,"Three blasts in succession, namely one prolonged followed by two short blasts, at intervals of not more than 2 minutes."
+21,Rule 37 (Distress),"According to Annex IV, describe the ""Arm Signal"" used to indicate distress.",Slowly and repeatedly raising and lowering arms outstretched to each side.
+22,Inland Rule 14 (Head-on),"On the Great Lakes or Western Rivers, which vessel has the right-of-way in a head-on situation with a current?",The vessel proceeding downbound with a following current.

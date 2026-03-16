@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+    body {
+        margin: 0;
+        padding: 0;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        background: transparent;
+    }
+    #canvas-container {
+        position: relative;
+        display: inline-block;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        overflow: hidden;
+    }
+    #bg-canvas {
+        position: absolute;
+        top: 0;
+        left: 0;
+    }
+    #draw-canvas {
+        position: absolute;
+        top: 0;
+        left: 0;
+        cursor: crosshair;
+    }
+    .btn-row {
+        margin-top: 8px;
+        display: flex;
+        gap: 8px;
+    }
+    .btn {
+        padding: 6px 16px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 14px;
+        background: #fff;
+    }
+    .btn:hover {
+        background: #f0f0f0;
+    }
+    .btn-submit {
+        background: #FF4B4B;
+        color: white;
+        border-color: #FF4B4B;
+    }
+    .btn-submit:hover {
+        background: #E03E3E;
+    }
+    .btn-clear {
+        background: #fff;
+        color: #333;
+    }
+</style>
+</head>
+<body>
+
+<div id="canvas-container">
+    <canvas id="bg-canvas"></canvas>
+    <canvas id="draw-canvas"></canvas>
+</div>
+<div class="btn-row">
+    <button class="btn btn-submit" id="submit-btn">Submit Drawing</button>
+    <button class="btn btn-clear" id="clear-btn">Clear</button>
+    <button class="btn btn-clear" id="undo-btn">Undo</button>
+</div>
+
+<script>
+// --- Streamlit Communication Protocol ---
+function sendMessageToStreamlitClient(type, data) {
+    var outData = Object.assign({
+        isStreamlitMessage: true,
+        type: type,
+    }, data);
+    window.parent.postMessage(outData, "*");
+}
+
+function init() {
+    sendMessageToStreamlitClient("streamlit:componentReady", {apiVersion: 1});
+}
+
+function setFrameHeight(height) {
+    sendMessageToStreamlitClient("streamlit:setFrameHeight", {height: height});
+}
+
+function sendDataToPython(data) {
+    sendMessageToStreamlitClient("streamlit:setComponentValue", data);
+}
+
+// --- Canvas State ---
+var bgCanvas = document.getElementById("bg-canvas");
+var drawCanvas = document.getElementById("draw-canvas");
+var bgCtx = bgCanvas.getContext("2d");
+var drawCtx = drawCanvas.getContext("2d");
+var container = document.getElementById("canvas-container");
+
+var isDrawing = false;
+var strokes = []; // Array of stroke paths for undo
+var currentStroke = []; // Current stroke points
+
+// --- Drawing Logic ---
+function getPos(e) {
+    var rect = drawCanvas.getBoundingClientRect();
+    if (e.touches && e.touches.length > 0) {
+        return {
+            x: e.touches[0].clientX - rect.left,
+            y: e.touches[0].clientY - rect.top
+        };
+    }
+    return {
+        x: e.offsetX,
+        y: e.offsetY
+    };
+}
+
+function startDraw(e) {
+    e.preventDefault();
+    isDrawing = true;
+    var pos = getPos(e);
+    currentStroke = [pos];
+    drawCtx.beginPath();
+    drawCtx.moveTo(pos.x, pos.y);
+}
+
+function moveDraw(e) {
+    if (!isDrawing) return;
+    e.preventDefault();
+    var pos = getPos(e);
+    currentStroke.push(pos);
+    drawCtx.strokeStyle = "#FF0000";
+    drawCtx.lineWidth = 3;
+    drawCtx.lineCap = "round";
+    drawCtx.lineJoin = "round";
+    drawCtx.lineTo(pos.x, pos.y);
+    drawCtx.stroke();
+}
+
+function endDraw(e) {
+    if (!isDrawing) return;
+    e.preventDefault();
+    isDrawing = false;
+    if (currentStroke.length > 0) {
+        strokes.push(currentStroke.slice());
+    }
+    currentStroke = [];
+}
+
+// Mouse events
+drawCanvas.addEventListener("mousedown", startDraw);
+drawCanvas.addEventListener("mousemove", moveDraw);
+drawCanvas.addEventListener("mouseup", endDraw);
+drawCanvas.addEventListener("mouseleave", endDraw);
+
+// Touch events
+drawCanvas.addEventListener("touchstart", startDraw, {passive: false});
+drawCanvas.addEventListener("touchmove", moveDraw, {passive: false});
+drawCanvas.addEventListener("touchend", endDraw, {passive: false});
+drawCanvas.addEventListener("touchcancel", endDraw, {passive: false});
+
+// --- Redraw all strokes ---
+function redrawStrokes() {
+    drawCtx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
+    drawCtx.strokeStyle = "#FF0000";
+    drawCtx.lineWidth = 3;
+    drawCtx.lineCap = "round";
+    drawCtx.lineJoin = "round";
+    for (var i = 0; i < strokes.length; i++) {
+        var stroke = strokes[i];
+        if (stroke.length < 1) continue;
+        drawCtx.beginPath();
+        drawCtx.moveTo(stroke[0].x, stroke[0].y);
+        for (var j = 1; j < stroke.length; j++) {
+            drawCtx.lineTo(stroke[j].x, stroke[j].y);
+        }
+        drawCtx.stroke();
+    }
+}
+
+// --- Button Handlers ---
+document.getElementById("clear-btn").addEventListener("click", function() {
+    strokes = [];
+    drawCtx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
+});
+
+document.getElementById("undo-btn").addEventListener("click", function() {
+    if (strokes.length > 0) {
+        strokes.pop();
+        redrawStrokes();
+    }
+});
+
+document.getElementById("submit-btn").addEventListener("click", function() {
+    var dataUrl = drawCanvas.toDataURL("image/png");
+    var base64Data = dataUrl.split(",")[1];
+    sendDataToPython({value: base64Data, dataType: "json"});
+});
+
+// --- Receive Data from Python ---
+function onDataFromPython(event) {
+    if (event.data.type !== "streamlit:render") return;
+
+    var args = event.data.args;
+    var width = args.width;
+    var height = args.height;
+    var imageBase64 = args.image_base64;
+
+    // Set canvas dimensions
+    bgCanvas.width = width;
+    bgCanvas.height = height;
+    drawCanvas.width = width;
+    drawCanvas.height = height;
+    container.style.width = width + "px";
+    container.style.height = height + "px";
+
+    // Draw background image
+    var img = new Image();
+    img.onload = function() {
+        bgCtx.drawImage(img, 0, 0, width, height);
+    };
+    img.src = "data:image/jpeg;base64," + imageBase64;
+
+    // Redraw existing strokes (in case of Streamlit rerun)
+    redrawStrokes();
+
+    // Set frame height: canvas + buttons + padding
+    setFrameHeight(height + 60);
+}
+
+window.addEventListener("message", onDataFromPython);
+
+// Initialize
+init();
+</script>
+
+</body>
+</html>
