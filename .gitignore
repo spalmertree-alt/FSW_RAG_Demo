@@ -17,4 +17,5 @@ Thumbs.db
 Untitled
 
 # Large PDFs (uploaded to Gemini File Search stores directly)
-MCRP 3-01A.pdf
+pdfs/
+*.pdf
