@@ -190,9 +190,9 @@ class CourseConfig:
         self.visual_csv = visual_csv
         self.background_image = background_image
         self.rule_knowledge_areas = rule_knowledge_areas
-        self.subject_label = subject_label          # e.g. "Maritime Rules of the Road"
-        self.examiner_persona = examiner_persona    # e.g. "USCG Licensing Examiner"
-        self.oral_subject = oral_subject            # e.g. "Rules of the Road / Collision Avoidance"
+        self.subject_label = subject_label          # e.g. "Network Infrastructure Installation"
+        self.examiner_persona = examiner_persona    # e.g. "Network Infrastructure Expert"
+        self.oral_subject = oral_subject            # e.g. "Network Installation & Administration"
         self.oral_board_caption = oral_board_caption
         self.voice_placeholder = voice_placeholder
         self.visual_caption = visual_caption
@@ -351,7 +351,7 @@ class TopicPerformance(BaseModel):
 # --- ANALYTICS SERVICE (Weak Topic Identification) ---
 
 # Legacy alias kept for any external references; code now uses course config
-RULE_KNOWLEDGE_AREAS = MARITIME_KNOWLEDGE_AREAS
+RULE_KNOWLEDGE_AREAS = INSTALLATION_KNOWLEDGE_AREAS
 
 
 class AnalyticsService:
@@ -3193,11 +3193,7 @@ def main():
             st.session_state.quiz_submitted = False
             st.session_state.last_quiz_id = None
 
-        # Marksmanship and ATG courses use AI-generated quizzes only (no CSV bank)
-        if get_active_course().key in ("marksmanship", "atg_basic_phase"):
-            source = "AI Gen"
-        else:
-            source = st.radio("Source:", ["CSV", "AI Gen"], horizontal=True, on_change=clear, key="source_radio")
+        source = st.radio("Source:", ["CSV", "AI Gen"], horizontal=True, on_change=clear, key="source_radio")
 
             if source == "CSV":
                 mc_csv = get_active_course().mc_csv
