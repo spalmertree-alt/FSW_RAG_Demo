@@ -115,16 +115,21 @@ Orchestrator, Palo Alto Networks firewalls (PA-1400, PAN-OS, NGFW), and related 
 CRITICAL: You MUST use the File Search tool to search ALL documents in the knowledge base.
 
 RULES FOR OPERATION:
-1. Search across ALL documents for every question.
+1. Search across ALL documents for every question — including exact error codes (e.g., CXL1002, CXL1000).
+   For error codes, search both the exact code AND related terms (e.g., "CXL1002 error message event").
 2. Do NOT answer from general knowledge. ONLY use information returned by the File Search tool.
-3. If the File Search tool returns NO relevant results for the question, you MUST respond:
+3. If the File Search tool returns NO relevant results, respond:
    "I'm sorry, I could not find information about that topic in the current manuals. Please try rephrasing your question."
-   Do NOT attempt to answer the question from your own knowledge.
-4. Always cite the specific manual name, section, or page reference when answering.
+   Do NOT attempt to answer from your own knowledge.
+4. MANDATORY SOURCE CITATION: Every answer MUST end with a source line in this exact format:
+   **Source: [document name], Page [page number]**
+   If multiple sources are used, list each one. Never omit this line.
 5. Reproduce technical procedures, CLI commands, warnings, and specifications verbatim from the source document.
-6. When synthesizing information across multiple documents, clearly attribute each source.
+6. When synthesizing information across multiple documents, clearly attribute each source inline.
 7. Do not add any information that is not present in the retrieved documents.
 8. Use proper networking terminology and abbreviations (e.g., VLAN, OSPF, SD-WAN, NGFW, HA).
+9. You have full memory of this conversation. Use prior messages as context when answering follow-up questions.
+   If asked "what document is that from?" or similar, refer back to the source you cited in your previous answer.
 """
 
 # Open LLM mode system instructions (used when RAG is disabled via Master Switch)
@@ -659,7 +664,8 @@ class GenAIProvider:
         timeout: int = API_TIMEOUT_SECONDS,
         use_cache: bool = True,
         stream: bool = False,
-        model_override: Optional[str] = None
+        model_override: Optional[str] = None,
+        history: Optional[List[Dict]] = None
     ) -> Union[str, Iterator[str]]:
         """
         Generate content using Google GenAI with optional RAG, caching, and streaming.
@@ -709,14 +715,24 @@ class GenAIProvider:
 
             config = types.GenerateContentConfig(**config_args)
 
+            # Build multi-turn contents from history if provided
+            if history:
+                contents = []
+                for msg in history:
+                    role = "user" if msg["role"] == "user" else "model"
+                    contents.append(types.Content(role=role, parts=[types.Part(text=msg["content"])]))
+                contents.append(types.Content(role="user", parts=[types.Part(text=prompt)]))
+            else:
+                contents = prompt
+
             # Streaming response
             if stream and ENABLE_STREAMING:
-                return self._stream_response(prompt, config, cache_key, active_model)
+                return self._stream_response(contents, config, cache_key, active_model)
 
             # Non-streaming response
             response = self.client.models.generate_content(
                 model=active_model,
-                contents=prompt,
+                contents=contents,
                 config=config
             )
 
@@ -753,7 +769,7 @@ class GenAIProvider:
 
     def _stream_response(
         self,
-        prompt: str,
+        contents,
         config: types.GenerateContentConfig,
         cache_key: Optional[str] = None,
         model: Optional[str] = None
@@ -762,7 +778,7 @@ class GenAIProvider:
         Stream response chunks from the API.
 
         Args:
-            prompt: The prompt to send
+            contents: The prompt string or multi-turn contents list to send
             config: Generation config
             cache_key: Optional cache key to store final result
             model: Model ID to use (defaults to self.model)
@@ -775,7 +791,7 @@ class GenAIProvider:
         try:
             response_stream = self.client.models.generate_content_stream(
                 model=active_model,
-                contents=prompt,
+                contents=contents,
                 config=config
             )
 
@@ -3154,13 +3170,17 @@ def main():
                 chat_model = get_active_model("chat")
                 rag_on = is_rag_enabled()
                 system_instr = get_active_system_instruction()
+                # Build history: all messages except the just-appended user message
+                chat_history = st.session_state.messages[:-1] if len(st.session_state.messages) > 1 else None
+
                 if ENABLE_STREAMING:
                     # Streaming response for better UX
                     with st.chat_message("assistant"):
                         placeholder = st.empty()
                         full_response = ""
                         for chunk in ai_provider.generate_content(
-                            p, system_instr, use_rag=rag_on, stream=True, model_override=chat_model
+                            p, system_instr, use_rag=rag_on, stream=True,
+                            model_override=chat_model, history=chat_history
                         ):
                             full_response += chunk
                             placeholder.markdown(full_response + "▌")
@@ -3170,7 +3190,8 @@ def main():
                     # Non-streaming fallback
                     with st.spinner("Thinking..."):
                         r = ai_provider.generate_content(
-                            p, system_instr, use_rag=rag_on, model_override=chat_model
+                            p, system_instr, use_rag=rag_on, model_override=chat_model,
+                            history=chat_history
                         )
                         st.session_state.messages.append({"role": "assistant", "content": r})
                         st.chat_message("assistant").write(r)
