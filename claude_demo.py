@@ -109,7 +109,9 @@ except ImportError:
     IN_STREAMLIT = False
 
 SYSTEM_INSTRUCTION = """
-You are an installation support expert and technical assistant.
+You are a network infrastructure installation and administration expert.
+Your knowledge base covers Aruba/HPE switches (CX 8325 series), HPE EdgeConnect SD-WAN,
+Orchestrator, Palo Alto Networks firewalls (PA-1400, PAN-OS, NGFW), and related error references.
 CRITICAL: You MUST use the File Search tool to search ALL documents in the knowledge base.
 
 RULES FOR OPERATION:
@@ -123,18 +125,23 @@ RULES FOR OPERATION:
 6. When quoting text verbatim, use brief excerpts (1-3 sentences maximum).
 7. Intersperse verbatim quotes with your own explanations and analysis.
 8. DO NOT reproduce entire paragraphs or pages verbatim.
+9. Use proper networking terminology and abbreviations (e.g., VLAN, OSPF, SD-WAN, NGFW, HA).
 """
 
 # Open LLM mode system instructions (used when RAG is disabled via Master Switch)
 SYSTEM_INSTRUCTION_OPEN = """
-You are an installation support expert and technical assistant with full access to your training knowledge.
+You are a network infrastructure installation and administration expert.
+You have full access to your training knowledge on Aruba/HPE switches, EdgeConnect SD-WAN,
+Palo Alto Networks firewalls, and general network infrastructure.
 
 RULES FOR OPERATION:
-1. Use your full knowledge base to answer installation-related questions.
-2. You may draw on general technical knowledge and best practices.
+1. Use your full knowledge base to answer networking and installation questions.
+2. You may draw on general networking knowledge, vendor documentation, and best practices.
 3. Always cite specific manual names, sections, or references when applicable.
 4. Provide thorough, accurate answers using your complete training data.
-5. You are NOT limited to a specific document set - use all available knowledge.
+5. If a question goes beyond the specific manuals, you may provide relevant networking context.
+6. You are NOT limited to a specific document set - use all available knowledge.
+7. Use proper networking terminology and abbreviations.
 """
 
 VOICE_CHAT_INSTRUCTION = ""
@@ -195,17 +202,28 @@ class CourseConfig:
 
 # Installation Assistant course ------------------------------------------------
 INSTALLATION_KNOWLEDGE_AREAS: Dict[str, Tuple[str, str]] = {
-    # Update these keys/labels to match your 13 installation manual topics.
-    # Format: "key": ("Topic Label", "Group/Section")
-    # Example entries — replace with your actual manual names/sections:
-    "manual_1": ("Manual 1", "Installation Manuals"),
-    # "manual_2": ("Manual 2", "Installation Manuals"),
-    # "manual_3": ("Manual 3", "Installation Manuals"),
+    # Aruba / HPE Networking
+    "aruba_8325_igsg": ("Aruba 8325 IGSG", "Aruba Switches"),
+    "aruba_8325h_igsg": ("Aruba 8325H IGSG", "Aruba Switches"),
+    "hpe_cx8325": ("HPE Aruba CX 8325 Switch Series", "Aruba Switches"),
+    "hpe_edgeconnect_sdwan": ("HPE Aruba EdgeConnect SD-WAN QuickSpecs", "Aruba SD-WAN"),
+    # EdgeConnect / Orchestrator
+    "ec_10108_install": ("EC-10108 Install Guide", "EdgeConnect"),
+    "ec_10108_startup": ("EC-10108 StartUp Guide", "EdgeConnect"),
+    "orch_r960": ("Orchestrator User Guide R960", "EdgeConnect"),
+    "xr5610": ("XR5610 Operations Manual", "EdgeConnect"),
+    # Palo Alto Networks
+    "pa_1400_hw_ref": ("PA-1400 Hardware Reference", "Palo Alto"),
+    "pa_1400_series": ("PA-1400 Series", "Palo Alto"),
+    "pan_os_admin": ("PAN-OS Administration", "Palo Alto"),
+    "ngfw_admin": ("NGFW Administration", "Palo Alto"),
+    # General
+    "error_event_msg": ("Error & Event Message Reference", "Troubleshooting"),
 }
 
 COURSE_INSTALLATION = CourseConfig(
     key="installation",
-    name="Installation Assistant",
+    name="Network Installation Assistant",
     icon="🔧",
     store_id_secret=STORE_ID_NAME,
     system_instruction=SYSTEM_INSTRUCTION,
@@ -217,14 +235,14 @@ COURSE_INSTALLATION = CourseConfig(
     visual_csv="",
     background_image="background.png",
     rule_knowledge_areas=INSTALLATION_KNOWLEDGE_AREAS,
-    subject_label="Installation Manuals",
-    examiner_persona="Installation Support Expert",
-    oral_subject="Installation Procedures",
+    subject_label="Network Infrastructure Installation",
+    examiner_persona="Network Infrastructure Expert",
+    oral_subject="Network Installation & Administration",
     oral_board_caption="",
-    voice_placeholder="Ask an installation question...",
+    voice_placeholder="Ask about installation, configuration, or troubleshooting...",
     visual_caption="",
-    grading_synonym_hint="",
-    oral_grading_concept="procedure or step",
+    grading_synonym_hint='Accept valid networking synonyms (e.g. "firewall rule" for "security policy" is acceptable if the concept is correct).',
+    oral_grading_concept="procedure, configuration, or concept",
 )
 
 # Course registry
