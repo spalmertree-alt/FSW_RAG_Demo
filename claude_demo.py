@@ -3192,24 +3192,7 @@ def main():
             st.session_state.quiz_submitted = False
             st.session_state.last_quiz_id = None
 
-        source = st.radio("Source:", ["CSV", "AI Gen"], horizontal=True, on_change=clear, key="source_radio")
-
-            if source == "CSV":
-                mc_csv = get_active_course().mc_csv
-                tags = st.multiselect("Topics:", DataManager.get_topics_from_csv(mc_csv))
-                n = st.number_input("Count:", MIN_QUIZ_QUESTIONS, MAX_QUIZ_QUESTIONS, DEFAULT_QUIZ_COUNT)
-                if st.button("Load CSV") and tags:
-                    try:
-                        data = DataManager.load_csv_sample(mc_csv, tags, n)
-                        if data:
-                            with st.spinner("Generating quiz from CSV..."):
-                                st.session_state.quiz_data = quiz_service.generate_from_csv(data, n)
-                                st.session_state.current_quiz_source = "CSV"
-                                st.rerun()
-                        else:
-                            st.warning("No data found for selected tags.")
-                    except Exception as e:
-                        st.error(f"Error: {e}")
+        source = "AI Gen"
         if source == "AI Gen":
             # Difficulty Level Selection
             st.subheader("Difficulty Level")
