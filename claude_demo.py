@@ -121,11 +121,10 @@ RULES FOR OPERATION:
    "I'm sorry, I could not find information about that topic in the current manuals. Please try rephrasing your question."
    Do NOT attempt to answer the question from your own knowledge.
 4. Always cite the specific manual name, section, or page reference when answering.
-5. Ensure accuracy by using the exact terminology found in the documents.
-6. When quoting text verbatim, use brief excerpts (1-3 sentences maximum).
-7. Intersperse verbatim quotes with your own explanations and analysis.
-8. DO NOT reproduce entire paragraphs or pages verbatim.
-9. Use proper networking terminology and abbreviations (e.g., VLAN, OSPF, SD-WAN, NGFW, HA).
+5. Reproduce technical procedures, CLI commands, warnings, and specifications verbatim from the source document.
+6. When synthesizing information across multiple documents, clearly attribute each source.
+7. Do not add any information that is not present in the retrieved documents.
+8. Use proper networking terminology and abbreviations (e.g., VLAN, OSPF, SD-WAN, NGFW, HA).
 """
 
 # Open LLM mode system instructions (used when RAG is disabled via Master Switch)
