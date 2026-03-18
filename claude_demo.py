@@ -50,9 +50,7 @@ logger = logging.getLogger("MaritimePOC")
 
 # --- CONSTANTS ---
 API_KEY_NAME = "GEMINI_API_KEY"
-STORE_ID_NAME = "STORE_ID"       # Legacy default; overridden by active course config
-STORE_ID_2_NAME = "STORE_ID_2"   # Second course file store key in secrets
-STORE_ID_3_NAME = "STORE_ID_3"   # Third course (ATG Basic Phase) file store key in secrets
+STORE_ID_NAME = "STORE_ID"       # File store key in secrets (13 installation PDFs)
 
 # Model Configuration - Easy switching between models
 MODEL_FLASH = "gemini-2.5-flash"  # Fast, cost-effective for most tasks
@@ -111,52 +109,43 @@ except ImportError:
     IN_STREAMLIT = False
 
 SYSTEM_INSTRUCTION = """
-You are a Maritime Rules of the Road expert and Examiner.
+You are a network infrastructure installation and administration expert.
+Your knowledge base covers Aruba/HPE switches (CX 8325 series), HPE EdgeConnect SD-WAN,
+Orchestrator, Palo Alto Networks firewalls (PA-1400, PAN-OS, NGFW), and related error references.
 CRITICAL: You MUST use the File Search tool to search ALL documents in the knowledge base.
 
 RULES FOR OPERATION:
-1. Search across ALL these documents for every question.
+1. Search across ALL documents for every question.
 2. Do NOT answer from general knowledge. ONLY use information returned by the File Search tool.
 3. If the File Search tool returns NO relevant results for the question, you MUST respond:
-   "I'm sorry, I could not find information about that topic in the current course materials. Please check that you have the correct course selected, or try rephrasing your question."
+   "I'm sorry, I could not find information about that topic in the current manuals. Please try rephrasing your question."
    Do NOT attempt to answer the question from your own knowledge.
-4. Always cite specific Rule numbers (e.g., "Rule 14(a)") or Annex sections.
+4. Always cite the specific manual name, section, or page reference when answering.
 5. Ensure accuracy by using the exact terminology found in the documents.
-6. When quoting rule text verbatim, use brief excerpts (1-3 sentences maximum per rule).
+6. When quoting text verbatim, use brief excerpts (1-3 sentences maximum).
 7. Intersperse verbatim quotes with your own explanations and analysis.
-8. DO NOT reproduce entire paragraphs or pages verbatim - select only the most relevant sentences.
-"""
-
-VOICE_CHAT_INSTRUCTION = """
-You are a Maritime Rules of the Road expert having a voice conversation with a student.
-Keep responses concise and conversational - suitable for spoken delivery.
-Use clear, simple language. Avoid overly technical jargon unless necessary.
-When citing rules, speak them naturally (e.g., "Rule fourteen A" instead of "Rule 14(a)").
-Limit responses to 2-3 sentences when possible for natural conversation flow.
+8. DO NOT reproduce entire paragraphs or pages verbatim.
+9. Use proper networking terminology and abbreviations (e.g., VLAN, OSPF, SD-WAN, NGFW, HA).
 """
 
 # Open LLM mode system instructions (used when RAG is disabled via Master Switch)
 SYSTEM_INSTRUCTION_OPEN = """
-You are a Maritime Rules of the Road expert and Examiner with full access to your training knowledge and current web grounding.
+You are a network infrastructure installation and administration expert.
+You have full access to your training knowledge on Aruba/HPE switches, EdgeConnect SD-WAN,
+Palo Alto Networks firewalls, and general network infrastructure.
 
 RULES FOR OPERATION:
-1. Use your full knowledge base to answer questions about Maritime Rules of the Road (COLREGS).
-2. You may draw on general maritime knowledge, international conventions, and current best practices.
-3. Always cite specific Rule numbers (e.g., "Rule 14(a)") or Annex sections when applicable.
+1. Use your full knowledge base to answer networking and installation questions.
+2. You may draw on general networking knowledge, vendor documentation, and best practices.
+3. Always cite specific manual names, sections, or references when applicable.
 4. Provide thorough, accurate answers using your complete training data.
-5. If a question goes beyond COLREGS, you may provide relevant maritime context and related information.
+5. If a question goes beyond the specific manuals, you may provide relevant networking context.
 6. You are NOT limited to a specific document set - use all available knowledge.
+7. Use proper networking terminology and abbreviations.
 """
 
-VOICE_CHAT_INSTRUCTION_OPEN = """
-You are a Maritime Rules of the Road expert having a voice conversation with a student.
-You have full access to your training knowledge and current web grounding.
-Keep responses concise and conversational - suitable for spoken delivery.
-Use clear, simple language. Avoid overly technical jargon unless necessary.
-When citing rules, speak them naturally (e.g., "Rule fourteen A" instead of "Rule 14(a)").
-Limit responses to 2-3 sentences when possible for natural conversation flow.
-You may draw on your full knowledge base, not just specific documents.
-"""
+VOICE_CHAT_INSTRUCTION = ""
+VOICE_CHAT_INSTRUCTION_OPEN = ""
 
 
 # --- COURSE CONFIGURATION ---
@@ -211,285 +200,57 @@ class CourseConfig:
         self.oral_grading_concept = oral_grading_concept
 
 
-# Maritime course (existing) ------------------------------------------------
-MARITIME_KNOWLEDGE_AREAS: Dict[str, Tuple[str, str]] = {
-    # Part A - General
-    "1": ("Rule 1 - Application", "Part A: General"),
-    "2": ("Rule 2 - Responsibility", "Part A: General"),
-    "3": ("Rule 3 - Definitions", "Part A: General"),
-    # Part B - Steering and Sailing Rules
-    "4": ("Rule 4 - Application", "Part B: Steering & Sailing - Any Visibility"),
-    "5": ("Rule 5 - Look-out", "Part B: Steering & Sailing - Any Visibility"),
-    "6": ("Rule 6 - Safe Speed", "Part B: Steering & Sailing - Any Visibility"),
-    "7": ("Rule 7 - Risk of Collision", "Part B: Steering & Sailing - Any Visibility"),
-    "8": ("Rule 8 - Action to Avoid Collision", "Part B: Steering & Sailing - Any Visibility"),
-    "9": ("Rule 9 - Narrow Channels", "Part B: Steering & Sailing - Any Visibility"),
-    "10": ("Rule 10 - Traffic Separation Schemes", "Part B: Steering & Sailing - Any Visibility"),
-    "11": ("Rule 11 - Application", "Part B: Steering & Sailing - In Sight"),
-    "12": ("Rule 12 - Sailing Vessels", "Part B: Steering & Sailing - In Sight"),
-    "13": ("Rule 13 - Overtaking", "Part B: Steering & Sailing - In Sight"),
-    "14": ("Rule 14 - Head-on Situation", "Part B: Steering & Sailing - In Sight"),
-    "15": ("Rule 15 - Crossing Situation", "Part B: Steering & Sailing - In Sight"),
-    "16": ("Rule 16 - Action by Give-way Vessel", "Part B: Steering & Sailing - In Sight"),
-    "17": ("Rule 17 - Action by Stand-on Vessel", "Part B: Steering & Sailing - In Sight"),
-    "18": ("Rule 18 - Responsibilities Between Vessels", "Part B: Steering & Sailing - In Sight"),
-    "19": ("Rule 19 - Restricted Visibility", "Part B: Steering & Sailing - Restricted Visibility"),
-    # Part C - Lights and Shapes
-    "20": ("Rule 20 - Application", "Part C: Lights & Shapes"),
-    "21": ("Rule 21 - Definitions", "Part C: Lights & Shapes"),
-    "22": ("Rule 22 - Visibility of Lights", "Part C: Lights & Shapes"),
-    "23": ("Rule 23 - Power-driven Vessels Underway", "Part C: Lights & Shapes"),
-    "24": ("Rule 24 - Towing and Pushing", "Part C: Lights & Shapes"),
-    "25": ("Rule 25 - Sailing Vessels and Rowing", "Part C: Lights & Shapes"),
-    "26": ("Rule 26 - Fishing Vessels", "Part C: Lights & Shapes"),
-    "27": ("Rule 27 - Vessels NUC or RAM", "Part C: Lights & Shapes"),
-    "28": ("Rule 28 - Vessels Constrained by Draft", "Part C: Lights & Shapes"),
-    "29": ("Rule 29 - Pilot Vessels", "Part C: Lights & Shapes"),
-    "30": ("Rule 30 - Anchored/Aground Vessels", "Part C: Lights & Shapes"),
-    "31": ("Rule 31 - Seaplanes", "Part C: Lights & Shapes"),
-    # Part D - Sound and Light Signals
-    "32": ("Rule 32 - Definitions", "Part D: Sound & Light Signals"),
-    "33": ("Rule 33 - Equipment for Sound Signals", "Part D: Sound & Light Signals"),
-    "34": ("Rule 34 - Maneuvering and Warning Signals", "Part D: Sound & Light Signals"),
-    "35": ("Rule 35 - Sound Signals in Restricted Visibility", "Part D: Sound & Light Signals"),
-    "36": ("Rule 36 - Signals to Attract Attention", "Part D: Sound & Light Signals"),
-    "37": ("Rule 37 - Distress Signals", "Part D: Sound & Light Signals"),
-    # Part E - Exemptions
-    "38": ("Rule 38 - Exemptions", "Part E: Exemptions"),
-    # Annexes
-    "annex i": ("Annex I - Positioning of Lights/Shapes", "Annexes"),
-    "annex ii": ("Annex II - Additional Signals for Fishing", "Annexes"),
-    "annex iii": ("Annex III - Technical Details of Sound Signals", "Annexes"),
-    "annex iv": ("Annex IV - Distress Signals", "Annexes"),
+# Installation Assistant course ------------------------------------------------
+INSTALLATION_KNOWLEDGE_AREAS: Dict[str, Tuple[str, str]] = {
+    # Aruba / HPE Networking
+    "aruba_8325_igsg": ("Aruba 8325 IGSG", "Aruba Switches"),
+    "aruba_8325h_igsg": ("Aruba 8325H IGSG", "Aruba Switches"),
+    "hpe_cx8325": ("HPE Aruba CX 8325 Switch Series", "Aruba Switches"),
+    "hpe_edgeconnect_sdwan": ("HPE Aruba EdgeConnect SD-WAN QuickSpecs", "Aruba SD-WAN"),
+    # EdgeConnect / Orchestrator
+    "ec_10108_install": ("EC-10108 Install Guide", "EdgeConnect"),
+    "ec_10108_startup": ("EC-10108 StartUp Guide", "EdgeConnect"),
+    "orch_r960": ("Orchestrator User Guide R960", "EdgeConnect"),
+    "xr5610": ("XR5610 Operations Manual", "EdgeConnect"),
+    # Palo Alto Networks
+    "pa_1400_hw_ref": ("PA-1400 Hardware Reference", "Palo Alto"),
+    "pa_1400_series": ("PA-1400 Series", "Palo Alto"),
+    "pan_os_admin": ("PAN-OS Administration", "Palo Alto"),
+    "ngfw_admin": ("NGFW Administration", "Palo Alto"),
+    # General
+    "error_event_msg": ("Error & Event Message Reference", "Troubleshooting"),
 }
 
-COURSE_MARITIME = CourseConfig(
-    key="maritime",
-    name="Maritime Rules of the Road",
-    icon="⚓",
+COURSE_INSTALLATION = CourseConfig(
+    key="installation",
+    name="Network Installation Assistant",
+    icon="🔧",
     store_id_secret=STORE_ID_NAME,
     system_instruction=SYSTEM_INSTRUCTION,
     system_instruction_open=SYSTEM_INSTRUCTION_OPEN,
     voice_instruction=VOICE_CHAT_INSTRUCTION,
     voice_instruction_open=VOICE_CHAT_INSTRUCTION_OPEN,
-    mc_csv="ror_test.csv",
-    frq_csv="frq_bank.csv",
-    visual_csv="visual_bank.csv",
+    mc_csv="",
+    frq_csv="",
+    visual_csv="",
     background_image="background.png",
-    rule_knowledge_areas=MARITIME_KNOWLEDGE_AREAS,
-    subject_label="Maritime Rules of the Road",
-    examiner_persona="USCG Licensing Examiner",
-    oral_subject="Rules of the Road / Collision Avoidance",
-    oral_board_caption="Simulate a USCG Licensing Exam. Speak your answer clearly.",
-    voice_placeholder="Ask about Rules of the Road...",
-    visual_caption="Draw on the image to identify the correct vessel, light, or feature.",
-    grading_synonym_hint='Accept valid nautical synonyms (e.g. "turn right" for "alter course to starboard" is acceptable if the action is correct).',
-    oral_grading_concept="Rule",
+    rule_knowledge_areas=INSTALLATION_KNOWLEDGE_AREAS,
+    subject_label="Network Infrastructure Installation",
+    examiner_persona="Network Infrastructure Expert",
+    oral_subject="Network Installation & Administration",
+    oral_board_caption="",
+    voice_placeholder="Ask about installation, configuration, or troubleshooting...",
+    visual_caption="",
+    grading_synonym_hint='Accept valid networking synonyms (e.g. "firewall rule" for "security policy" is acceptable if the concept is correct).',
+    oral_grading_concept="procedure, configuration, or concept",
 )
 
-# USMC Rifle Marksmanship course (MCRP 3-01A) ---------------------------------
-MARKSMANSHIP_KNOWLEDGE_AREAS: Dict[str, Tuple[str, str]] = {
-    # Chapter 1
-    "1": ("Chapter 1 - Introduction to Rifle Marksmanship", "Fundamentals"),
-    # Chapter 2
-    "2": ("Chapter 2 - M16A2 Service Rifle", "The Rifle"),
-    "ammunition": ("Ammunition Types (M193, M855, M196, M856, M199, M200)", "The Rifle"),
-    "maintenance": ("Preventive Maintenance, Cleaning, and Inspection", "The Rifle"),
-    # Chapter 3
-    "3": ("Chapter 3 - Weapons Handling", "Weapons Handling"),
-    # Chapter 4
-    "4": ("Chapter 4 - Fundamentals of Marksmanship", "Fundamentals"),
-    "sight alignment": ("Sight Alignment and Sight Picture", "Fundamentals"),
-    "trigger control": ("Trigger Control", "Fundamentals"),
-    "breathing": ("Breath Control", "Fundamentals"),
-    # Chapter 5
-    "5": ("Chapter 5 - Rifle Firing Positions", "Firing Positions"),
-    "prone": ("Prone Position", "Firing Positions"),
-    "sitting": ("Sitting Position", "Firing Positions"),
-    "kneeling": ("Kneeling Position", "Firing Positions"),
-    "standing": ("Standing Position", "Firing Positions"),
-    "sling": ("Rifle Web Sling (Hasty Sling, Loop Sling)", "Firing Positions"),
-    # Chapter 6
-    "6": ("Chapter 6 - Use of Cover and Concealment", "Cover & Concealment"),
-    # Chapter 7
-    "7": ("Chapter 7 - Rifle Presentation", "Rifle Presentation"),
-    # Chapter 8
-    "8": ("Chapter 8 - Effects of Weather", "Weather Effects"),
-    "wind": ("Physical Effects of Wind on the Bullet", "Weather Effects"),
-    "windage": ("Determining Windage Adjustments", "Weather Effects"),
-    "temperature": ("Effects of Temperature and Precipitation", "Weather Effects"),
-    # Chapter 9
-    "9": ("Chapter 9 - Zeroing", "Zeroing"),
-    "bzo": ("Battlesight Zero (BZO)", "Zeroing"),
-    "true zero": ("True Zero", "Zeroing"),
-    # Chapter 10
-    "10": ("Chapter 10 - Engagement Techniques", "Engagement Techniques"),
-}
-
-COURSE_MARKSMANSHIP = CourseConfig(
-    key="marksmanship",
-    name="USMC Rifle Marksmanship",
-    icon="\U0001F3AF",
-    store_id_secret=STORE_ID_2_NAME,
-    system_instruction="""
-You are a United States Marine Corps Rifle Marksmanship instructor and subject matter expert.
-Your knowledge base is MCRP 3-01A (Rifle Marksmanship).
-CRITICAL: You MUST use the File Search tool to search ALL documents in the knowledge base.
-
-RULES FOR OPERATION:
-1. Search across ALL documents for every question.
-2. Do NOT answer from general knowledge. ONLY use information returned by the File Search tool.
-3. If the File Search tool returns NO relevant results for the question, you MUST respond:
-   "I'm sorry, I could not find information about that topic in the current course materials. Please check that you have the correct course selected, or try rephrasing your question."
-   Do NOT attempt to answer the question from your own knowledge.
-4. Always cite specific chapter numbers, section titles, or page references from MCRP 3-01A.
-5. Ensure accuracy by using the exact terminology found in MCRP 3-01A.
-6. When quoting text verbatim, use brief excerpts (1-3 sentences maximum).
-7. Intersperse verbatim quotes with your own explanations and analysis.
-8. DO NOT reproduce entire paragraphs or pages verbatim.
-9. Use proper Marine Corps terminology and abbreviations (e.g., BZO, NPA, NPOA).
-""",
-    system_instruction_open="""
-You are a United States Marine Corps Rifle Marksmanship instructor and subject matter expert.
-You have full access to your training knowledge on MCRP 3-01A and related USMC marksmanship doctrine.
-
-RULES FOR OPERATION:
-1. Use your full knowledge base to answer questions about USMC rifle marksmanship.
-2. You may draw on general marksmanship knowledge, USMC doctrine, and current best practices.
-3. Always cite specific chapters, sections, or references from MCRP 3-01A when applicable.
-4. Provide thorough, accurate answers using your complete training data.
-5. If a question goes beyond MCRP 3-01A, you may provide relevant marksmanship context and related USMC information.
-6. You are NOT limited to a specific document set - use all available knowledge.
-7. Use proper Marine Corps terminology and abbreviations.
-""",
-    voice_instruction="""
-You are a USMC Rifle Marksmanship instructor having a voice conversation with a Marine.
-Keep responses concise and conversational - suitable for spoken delivery.
-Use clear, direct language consistent with Marine Corps communication style.
-Reference specific chapters or sections of MCRP 3-01A when citing information.
-Limit responses to 2-3 sentences when possible for natural conversation flow.
-""",
-    voice_instruction_open="""
-You are a USMC Rifle Marksmanship instructor having a voice conversation with a Marine.
-You have full access to your training knowledge on marksmanship doctrine.
-Keep responses concise and conversational - suitable for spoken delivery.
-Use clear, direct language consistent with Marine Corps communication style.
-Limit responses to 2-3 sentences when possible for natural conversation flow.
-You may draw on your full knowledge base, not just specific documents.
-""",
-    mc_csv="marksmanship_mc.csv",
-    frq_csv="marksmanship_frq.csv",
-    visual_csv="marksmanship_visual.csv",
-    background_image="background.png",
-    rule_knowledge_areas=MARKSMANSHIP_KNOWLEDGE_AREAS,
-    subject_label="USMC Rifle Marksmanship (MCRP 3-01A)",
-    examiner_persona="USMC Marksmanship Instructor",
-    oral_subject="Rifle Marksmanship / MCRP 3-01A",
-    oral_board_caption="Simulate a USMC Marksmanship evaluation. Speak your answer clearly.",
-    voice_placeholder="Ask about Rifle Marksmanship...",
-    visual_caption="Draw on the image to answer the question.",
-    grading_synonym_hint='Accept valid marksmanship synonyms (e.g. "front sight" for "front sight post" is acceptable if the concept is correct).',
-    oral_grading_concept="technique, principle, or concept",
-)
-
-# USN ATG Basic Phase course --------------------------------------------------
-ATG_KNOWLEDGE_AREAS: Dict[str, Tuple[str, str]] = {
-    # ATG User Guide (App Z - FBP)
-    "fbp": ("Fleet Basic Phase Overview", "ATG User Guide App Z - FBP"),
-    "bptt": ("Basic Phase Training Team", "ATG User Guide App Z - FBP"),
-    "training schedule": ("Ship's Training Schedule", "ATG User Guide App Z - FBP"),
-    "basic phase milestones": ("Basic Phase Milestones and Events", "ATG User Guide App Z - FBP"),
-    "fbp planning": ("FBP Planning and Execution", "ATG User Guide App Z - FBP"),
-    # AUGM Appendix AB - READ-E 3 Guidance
-    "read-e": ("READ-E 3 Guidance", "AUGM Appendix AB"),
-    "read-e 3": ("READ-E 3 Assessment Process", "AUGM Appendix AB"),
-    "readiness evaluation": ("Readiness Evaluation", "AUGM Appendix AB"),
-    # AUGM App AA - SBTT
-    "sbtt": ("Shipboard Training Team", "AUGM App AA - SBTT"),
-    "sbtt organization": ("SBTT Organization and Responsibilities", "AUGM App AA - SBTT"),
-    "sbtt execution": ("SBTT Execution and Assessment", "AUGM App AA - SBTT"),
-    # AUGM A P MOB-E
-    "mob-e": ("MOB-E Mobilization Exercise", "AUGM A P MOB-E"),
-    "mobilization": ("Mobilization Planning and Execution", "AUGM A P MOB-E"),
-    "mob-e assessment": ("MOB-E Assessment Criteria", "AUGM A P MOB-E"),
-}
-
-COURSE_ATG = CourseConfig(
-    key="atg_basic_phase",
-    name="USN ATG Basic Phase",
-    icon="\u2693\u200D",  # anchor
-    store_id_secret=STORE_ID_3_NAME,
-    system_instruction="""
-You are a United States Navy Afloat Training Group (ATG) instructor and subject matter expert
-in Basic Phase training for ships. Your knowledge base covers the ATG User Guide (App Z - FBP),
-AUGM Appendix AB (READ-E 3 Guidance), AUGM App AA (SBTT), and AUGM A P MOB-E.
-CRITICAL: You MUST use the File Search tool to search ALL documents in the knowledge base.
-
-RULES FOR OPERATION:
-1. Search across ALL documents for every question.
-2. Do NOT answer from general knowledge. ONLY use information returned by the File Search tool.
-3. If the File Search tool returns NO relevant results for the question, you MUST respond:
-   "I'm sorry, I could not find information about that topic in the current course materials. Please check that you have the correct course selected, or try rephrasing your question."
-   Do NOT attempt to answer the question from your own knowledge.
-4. Always cite specific document names, appendix designators, section titles, or page references.
-5. Ensure accuracy by using the exact terminology found in the ATG/AUGM documents.
-6. When quoting text verbatim, use brief excerpts (1-3 sentences maximum).
-7. Intersperse verbatim quotes with your own explanations and analysis.
-8. DO NOT reproduce entire paragraphs or pages verbatim.
-9. Use proper Navy terminology and abbreviations (e.g., FBP, SBTT, READ-E, MOB-E, OFRP, TSTA, FEP).
-""",
-    system_instruction_open="""
-You are a United States Navy Afloat Training Group (ATG) instructor and subject matter expert
-in Basic Phase training for ships. You have full access to your training knowledge on the
-ship's training schedule, Basic Phase events, and ATG/AUGM doctrine.
-
-RULES FOR OPERATION:
-1. Use your full knowledge base to answer questions about Navy Basic Phase training.
-2. You may draw on general Navy training doctrine, OFRP phases, and current best practices.
-3. Always cite specific documents, appendices, or references when applicable.
-4. Provide thorough, accurate answers using your complete training data.
-5. If a question goes beyond Basic Phase training, you may provide relevant Navy training context.
-6. You are NOT limited to a specific document set - use all available knowledge.
-7. Use proper Navy terminology and abbreviations.
-""",
-    voice_instruction="""
-You are a USN Afloat Training Group instructor having a voice conversation with a Sailor or ship's training team member.
-Keep responses concise and conversational - suitable for spoken delivery.
-Use clear, direct language consistent with Navy communication style.
-Reference specific ATG/AUGM documents or appendices when citing information.
-Limit responses to 2-3 sentences when possible for natural conversation flow.
-""",
-    voice_instruction_open="""
-You are a USN Afloat Training Group instructor having a voice conversation with a Sailor or ship's training team member.
-You have full access to your training knowledge on Navy Basic Phase doctrine.
-Keep responses concise and conversational - suitable for spoken delivery.
-Use clear, direct language consistent with Navy communication style.
-Limit responses to 2-3 sentences when possible for natural conversation flow.
-You may draw on your full knowledge base, not just specific documents.
-""",
-    mc_csv="atg_mc.csv",
-    frq_csv="atg_frq.csv",
-    visual_csv="atg_visual.csv",
-    background_image="background.png",
-    rule_knowledge_areas=ATG_KNOWLEDGE_AREAS,
-    subject_label="USN ATG Basic Phase Training (FBP / AUGM)",
-    examiner_persona="Afloat Training Group (ATG) Instructor",
-    oral_subject="Basic Phase Training / Ship's Training Schedule",
-    oral_board_caption="Simulate an ATG Basic Phase assessment. Speak your answer clearly.",
-    voice_placeholder="Ask about Basic Phase training...",
-    visual_caption="Draw on the image to answer the question.",
-    grading_synonym_hint='Accept valid Navy training synonyms (e.g. "training team" for "SBTT" is acceptable if the concept is correct).',
-    oral_grading_concept="training concept, phase, or procedure",
-)
-
-# Course registry — add new courses here
+# Course registry
 COURSES: Dict[str, CourseConfig] = {
-    "maritime": COURSE_MARITIME,
-    "marksmanship": COURSE_MARKSMANSHIP,
-    "atg_basic_phase": COURSE_ATG,
+    "installation": COURSE_INSTALLATION,
 }
 
-DEFAULT_COURSE_KEY = "maritime"
+DEFAULT_COURSE_KEY = "installation"
 
 
 def get_active_course() -> CourseConfig:
@@ -3321,28 +3082,9 @@ def main():
     # Initialize services (these are lightweight wrappers)
     quiz_service = QuizService(ai_provider)
     remediation_service = RemediationService(ai_provider)
-    oral_service = OralBoardService(ai_provider)
-    grading_service = GradingService(ai_provider)
-    visual_service = VisualGradingService(ai_provider)
-    voice_service = VoiceChatService(ai_provider)
 
     with st.sidebar:
         st.title(f"{course.icon} {course.name}")
-
-        # --- Course Switcher ---
-        course_labels = {k: f"{c.icon} {c.name}" for k, c in COURSES.items()}
-        current_key = st.session_state.get("active_course", DEFAULT_COURSE_KEY)
-        selected_label = st.selectbox(
-            "Course",
-            options=list(course_labels.values()),
-            index=list(course_labels.keys()).index(current_key),
-            key="course_selector",
-        )
-        # Resolve label back to key
-        selected_key = [k for k, v in course_labels.items() if v == selected_label][0]
-        if selected_key != current_key:
-            switch_course(selected_key)
-            st.rerun()
 
         # --- RAG Master Switch ---
         st.markdown("---")
@@ -3371,21 +3113,13 @@ def main():
         if "selected_mode" not in st.session_state:
             st.session_state.selected_mode = "Chat 🤖"
 
-        main_tools = ["Chat 🤖", "Quiz 📝", "Free Response ✍️", "Visual Quiz 🎨"]
-        advanced_tools = ["Voice Chat 🎙️", "Oral Board 🎤", "Analytics 📊"]
+        main_tools = ["Chat 🤖", "Quiz 📝"]
 
         for tool in main_tools:
             if st.button(tool, key=f"main_{tool}", use_container_width=True,
                          type="primary" if st.session_state.selected_mode == tool else "secondary"):
                 st.session_state.selected_mode = tool
                 st.rerun()
-
-        with st.expander("More Tools", expanded=st.session_state.selected_mode in advanced_tools):
-            for tool in advanced_tools:
-                if st.button(tool, key=f"adv_{tool}", use_container_width=True,
-                             type="primary" if st.session_state.selected_mode == tool else "secondary"):
-                    st.session_state.selected_mode = tool
-                    st.rerun()
 
         mode = st.session_state.selected_mode
 
@@ -3685,20 +3419,6 @@ def main():
             with st.expander("Admin Export"):
                 st.download_button("Download JSON", json.dumps([q.model_dump() for q in questions], indent=2), "quiz.json")
 
-    elif mode == "Voice Chat 🎙️":
-        render_voice_chat(voice_service)
-
-    elif mode == "Free Response ✍️":
-        render_frq_section(grading_service)
-
-    elif mode == "Visual Quiz 🎨":
-        render_visual_quiz(visual_service)
-
-    elif mode == "Oral Board 🎤":
-        render_oral_board(oral_service)
-
-    elif mode == "Analytics 📊":
-        render_weak_topics()
 
 if __name__ == "__main__":
     main()
