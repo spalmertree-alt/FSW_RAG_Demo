@@ -1,5 +1,6 @@
 import time
 import os
+import sys
 from google import genai
 from google.genai import types
 
@@ -11,8 +12,9 @@ API_KEY = os.environ.get("GEMINI_API_KEY", "")
 # Leave empty to create a new store.
 EXISTING_STORE_ID = ""
 
-# Directory containing the 13 installation PDFs
-PDF_DIR = "pdfs"
+# Directory containing the 13 installation PDFs.
+# Override from command line:  python rag_setup.py /path/to/your/pdfs
+PDF_DIR = sys.argv[1] if len(sys.argv) > 1 else r"C:\Users\SeanPalmertree\OneDrive - LearnToWin, Inc\Desktop\FSW Docs"
 
 # Map PDF filenames to display names that help the AI distinguish documents
 FILES_CONFIG = {
