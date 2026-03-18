@@ -14,7 +14,7 @@ EXISTING_STORE_ID = ""
 
 # Directory containing the 13 installation PDFs.
 # Override from command line:  python rag_setup.py /path/to/your/pdfs
-PDF_DIR = sys.argv[1] if len(sys.argv) > 1 else "pdfs"
+PDF_DIR = sys.argv[1] if len(sys.argv) > 1 else r"C:\Users\SeanPalmertree\OneDrive - LearnToWin, Inc\Desktop\FSW Docs"
 
 # Map PDF filenames to display names that help the AI distinguish documents
 FILES_CONFIG = {
