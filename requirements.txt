@@ -1,8 +1,0 @@
-streamlit
-google-genai
-pandas
-numpy
-pydantic
-Pillow
-audio-recorder-streamlit
-reportlab
