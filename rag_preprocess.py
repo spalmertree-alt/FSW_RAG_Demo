@@ -24,7 +24,7 @@ except ImportError:
 # Configuration — keep in sync with rag_setup.py
 # ---------------------------------------------------------------------------
 
-PDF_DIR = sys.argv[1] if len(sys.argv) > 1 else r"C:\Users\SeanPalmertree\OneDrive - LearnToWin, Inc\Desktop\FSW Docs"
+PDF_DIR = sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.path.dirname(__file__), "raw_pdfs")
 OUTPUT_DIR = sys.argv[2] if len(sys.argv) > 2 else "rag_chunks"
 
 # Pages per chunk for large documents. Smaller = more precise retrieval,
@@ -33,6 +33,10 @@ OUTPUT_DIR = sys.argv[2] if len(sys.argv) > 2 else "rag_chunks"
 CHUNK_SIZE_DENSE = 5   # for docs > 200 pages (error guides, large references)
 CHUNK_SIZE_MEDIUM = 10  # for docs 51–200 pages
 CHUNK_SIZE_SMALL = 0    # 0 = upload as single file (docs <= 50 pages)
+
+# Overlap pages repeated at each chunk boundary so entries that straddle a
+# seam appear fully in at least one chunk.  Only applied to chunked docs.
+CHUNK_OVERLAP = 1
 
 FILES_CONFIG = {
     "Aruba_8325_IGSG_en_us.pdf":                                          "Aruba_8325_Installation_and_Getting_Started_Guide",
@@ -103,17 +107,22 @@ def process_pdf(pdf_path: str, display_name: str, output_dir: str):
             f.write("\n".join(lines))
         files_written = 1
     else:
-        # Large document — chunked files
+        # Large document — chunked files with overlap so entries near
+        # chunk boundaries appear fully in at least one chunk.
         for start in range(0, total_pages, size):
             end = min(start + size - 1, total_pages - 1)
-            start_page = start + 1   # 1-indexed for humans
+            start_page = start + 1   # 1-indexed for humans (chunk label)
             end_page = end + 1
+
+            # Extend window backwards by CHUNK_OVERLAP pages for all chunks
+            # after the first; the label still reflects the primary range.
+            read_start = max(0, start - CHUNK_OVERLAP)
 
             lines = [f"Document: {display_name}",
                      f"Pages: {start_page}–{end_page} of {total_pages}",
                      "=" * 60, ""]
             has_content = False
-            for i in range(start, end + 1):
+            for i in range(read_start, end + 1):
                 page_text = extract_page_text(doc[i]).strip()
                 if page_text:
                     lines.append(f"[Page {i + 1}]")
