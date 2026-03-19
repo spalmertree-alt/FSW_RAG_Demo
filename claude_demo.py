@@ -1784,10 +1784,10 @@ class RemediationService:
         # worker threads (which lack st.session_state) get the correct values.
         course = get_active_course()
         rag_on = is_rag_enabled()
-        # Use the open (non-restrictive) system instruction for remediation.
-        # The strict RAG instruction tells the model to refuse when File Search
-        # returns no results, which blocks lesson-plan generation.
-        system_instr = course.system_instruction_open
+        # Always use the strict RAG instruction for remediation so lesson content
+        # is grounded exclusively in uploaded documents.  If File Search returns
+        # no results for a topic the model will say so rather than hallucinate.
+        system_instr = course.system_instruction if rag_on else course.system_instruction_open
         quiz_model = st.session_state.get("model_for_quiz", MODEL_FOR_QUIZ)
 
         # Parallel processing with progress tracking
