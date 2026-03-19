@@ -26,7 +26,7 @@ EXISTING_STORE_ID = ""
 #     for large reference documents (e.g., the 800-page error event guide).
 #
 # Override from command line:  python rag_setup.py /path/to/source
-SOURCE_DIR = sys.argv[1] if len(sys.argv) > 1 else r"C:\Users\SeanPalmertree\OneDrive - LearnToWin, Inc\Desktop\FSW Docs"
+SOURCE_DIR = sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.path.dirname(__file__), "rag_chunks")
 
 # Map PDF filenames → display names (used in MODE 1 / raw PDF upload only).
 # In MODE 2 the display_name is derived from each .txt filename automatically.
