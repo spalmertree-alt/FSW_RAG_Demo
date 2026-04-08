@@ -51,6 +51,10 @@ logger = logging.getLogger("MaritimePOC")
 # --- CONSTANTS ---
 API_KEY_NAME = "GEMINI_API_KEY"
 STORE_ID_NAME = "STORE_ID"       # File store key in secrets (13 installation PDFs)
+ADMIN_PASSWORD_NAME = "ADMIN_PASSWORD"
+QUERY_LOG_FILE = os.path.join(os.path.dirname(__file__), "query_log.jsonl")
+HIGH_INTEREST_THRESHOLD = 3   # queries on same topic to flag as High Interest
+KNOWLEDGE_GAP_THRESHOLD = 2   # not-found responses to flag as Knowledge Gap
 
 # Model Configuration - Easy switching between models
 MODEL_FLASH = "gemini-2.5-flash"  # Fast, cost-effective for most tasks
@@ -2226,6 +2230,9 @@ def init_session_state():
         "model_for_oral": MODEL_FOR_ORAL,
         "model_for_visual": MODEL_FOR_VISUAL,
         "model_for_voice": MODEL_FOR_VOICE,
+        # Admin / query logging
+        "query_log": load_query_log(),
+        "admin_authenticated": False,
     }
     for key, val in defaults.items():
         if key not in st.session_state:
@@ -2300,6 +2307,78 @@ def get_active_voice_instruction() -> str:
     if is_rag_enabled():
         return course.voice_instruction
     return course.voice_instruction_open
+
+
+# --- QUERY LOGGING ---
+
+def _parse_sources_from_response(response: str) -> List[str]:
+    """Extract source citations from a response string."""
+    pattern = re.compile(r'\*\*Source:\s*([^,\n*]+),\s*Page\s*([^*\n]+)\*\*')
+    return [
+        f"{m.group(1).strip()}, p.{m.group(2).strip()}"
+        for m in pattern.finditer(response)
+    ]
+
+
+def _is_found_in_docs(response: str) -> bool:
+    """Return False if the response indicates the RAG search found nothing."""
+    not_found_phrases = [
+        "could not find information",
+        "not found in the current manuals",
+        "no relevant results",
+        "i'm sorry, i could not",
+        "i am sorry, i could not",
+    ]
+    lower = response.lower()
+    return not any(phrase in lower for phrase in not_found_phrases)
+
+
+def make_query_entry(question: str, response: str, rag_mode: bool) -> dict:
+    """Build a query log entry dict from a completed chat exchange."""
+    return {
+        "timestamp": datetime.now().isoformat(),
+        "question": question,
+        "response_snippet": response[:300] + ("..." if len(response) > 300 else ""),
+        "sources": _parse_sources_from_response(response),
+        "found_in_docs": _is_found_in_docs(response),
+        "rag_mode": rag_mode,
+    }
+
+
+def load_query_log() -> List[dict]:
+    """Load persisted query log from disk; returns empty list on any error."""
+    if not os.path.exists(QUERY_LOG_FILE):
+        return []
+    entries = []
+    try:
+        with open(QUERY_LOG_FILE, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    try:
+                        entries.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        pass
+    except Exception:
+        pass
+    return entries
+
+
+def persist_query_entry(entry: dict):
+    """Append one entry to the on-disk log (silent fail on cloud/read-only FS)."""
+    try:
+        with open(QUERY_LOG_FILE, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry) + "\n")
+    except Exception:
+        pass
+
+
+def log_query(entry: dict):
+    """Record a query entry in session state and on disk."""
+    if "query_log" not in st.session_state:
+        st.session_state.query_log = []
+    st.session_state.query_log.append(entry)
+    persist_query_entry(entry)
 
 
 def render_model_settings():
@@ -3074,6 +3153,146 @@ def render_visual_quiz(visual_service: VisualGradingService):
         st.error(f"Error loading image: {e}")
 
 
+def render_admin_panel():
+    """Password-gated admin dashboard showing query logs and topic flags."""
+    from collections import Counter
+
+    st.title("🔐 Admin Dashboard")
+
+    # ── Password gate ────────────────────────────────────────────────────────
+    if not st.session_state.get("admin_authenticated", False):
+        st.subheader("Authentication Required")
+        pwd = st.text_input("Enter admin password:", type="password", key="admin_pwd_input")
+        if st.button("Login", key="admin_login_btn"):
+            expected = st.secrets.get(ADMIN_PASSWORD_NAME, "")
+            if expected and pwd == expected:
+                st.session_state.admin_authenticated = True
+                st.rerun()
+            else:
+                st.error("Incorrect password.")
+        return
+
+    if st.button("Logout", key="admin_logout_btn"):
+        st.session_state.admin_authenticated = False
+        st.rerun()
+
+    # ── Load log ─────────────────────────────────────────────────────────────
+    log = st.session_state.get("query_log", [])
+    if not log:
+        st.info("No queries logged yet. Chat with the assistant to populate this dashboard.")
+        return
+
+    df = pd.DataFrame(log)
+    df["timestamp"] = pd.to_datetime(df["timestamp"])
+    df = df.sort_values("timestamp", ascending=False).reset_index(drop=True)
+
+    # ── Summary metrics ───────────────────────────────────────────────────────
+    total = len(df)
+    found = int(df["found_in_docs"].sum()) if "found_in_docs" in df.columns else 0
+    not_found_count = total - found
+    rag_queries = int(df["rag_mode"].sum()) if "rag_mode" in df.columns else 0
+
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Total Queries", total)
+    m2.metric("Found in Docs", found)
+    m3.metric("Not Found", not_found_count)
+    m4.metric("RAG Mode Queries", rag_queries)
+
+    st.divider()
+
+    # ── Flagged topics ────────────────────────────────────────────────────────
+    st.subheader("🚩 Flagged Topics")
+
+    question_counts = Counter(df["question"].str.lower().str.strip().tolist())
+    high_interest = [(q, c) for q, c in question_counts.items() if c >= HIGH_INTEREST_THRESHOLD]
+
+    not_found_mask = df["found_in_docs"] == False  # noqa: E712
+    not_found_df = df[not_found_mask] if not_found_mask.any() else pd.DataFrame()
+    if len(not_found_df) > 0:
+        gap_counts = Counter(not_found_df["question"].str.lower().str.strip().tolist())
+        knowledge_gaps = [(q, c) for q, c in gap_counts.items() if c >= KNOWLEDGE_GAP_THRESHOLD]
+    else:
+        knowledge_gaps = []
+
+    flag_col1, flag_col2 = st.columns(2)
+    with flag_col1:
+        st.markdown(f"**🔥 High Interest** *(asked {HIGH_INTEREST_THRESHOLD}+ times)*")
+        if high_interest:
+            for q, c in sorted(high_interest, key=lambda x: -x[1]):
+                label = q[:90] + ("..." if len(q) > 90 else "")
+                st.markdown(f"- `{label}` — **{c}x**")
+        else:
+            st.caption("No high-interest topics yet.")
+
+    with flag_col2:
+        st.markdown(f"**⚠️ Knowledge Gaps** *(not found {KNOWLEDGE_GAP_THRESHOLD}+ times)*")
+        if knowledge_gaps:
+            for q, c in sorted(knowledge_gaps, key=lambda x: -x[1]):
+                label = q[:90] + ("..." if len(q) > 90 else "")
+                st.markdown(f"- `{label}` — **{c}x not found**")
+        else:
+            st.caption("No knowledge gaps detected.")
+
+    st.divider()
+
+    # ── Query log table ───────────────────────────────────────────────────────
+    st.subheader("📋 Query Log")
+
+    fc1, fc2 = st.columns(2)
+    with fc1:
+        filter_found = st.selectbox(
+            "Filter by result:", ["All", "Found in Docs", "Not Found"],
+            key="admin_filter_found"
+        )
+    with fc2:
+        search_term = st.text_input(
+            "Search questions:", key="admin_search", placeholder="Type to filter..."
+        )
+
+    display_df = df.copy()
+    if filter_found == "Found in Docs":
+        display_df = display_df[display_df["found_in_docs"] == True]  # noqa: E712
+    elif filter_found == "Not Found":
+        display_df = display_df[display_df["found_in_docs"] == False]  # noqa: E712
+    if search_term:
+        display_df = display_df[
+            display_df["question"].str.contains(search_term, case=False, na=False)
+        ]
+
+    display_df["Result"] = display_df["found_in_docs"].map({True: "✅ Found", False: "❌ Not Found"})
+    display_df["Mode"] = display_df["rag_mode"].map({True: "RAG", False: "Open LLM"})
+    display_df["Time"] = display_df["timestamp"].dt.strftime("%Y-%m-%d %H:%M")
+    display_df["Sources"] = display_df["sources"].apply(
+        lambda x: "; ".join(x) if isinstance(x, list) and x else "—"
+    )
+
+    show_df = display_df[["Time", "question", "Result", "Mode", "Sources", "response_snippet"]].rename(
+        columns={"question": "Question", "response_snippet": "Response Preview"}
+    )
+
+    st.dataframe(show_df, use_container_width=True, height=420)
+
+    csv_data = show_df.to_csv(index=False)
+    st.download_button(
+        "⬇️ Download CSV",
+        data=csv_data,
+        file_name=f"query_log_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+        mime="text/csv",
+        key="admin_csv_download",
+    )
+
+    st.divider()
+    if st.button("🗑️ Clear Query Log", type="secondary", key="admin_clear_log"):
+        st.session_state.query_log = []
+        try:
+            if os.path.exists(QUERY_LOG_FILE):
+                os.remove(QUERY_LOG_FILE)
+        except Exception:
+            pass
+        st.success("Query log cleared.")
+        st.rerun()
+
+
 def main():
     """Main application entry point."""
     st.set_page_config(page_title="Ethos Learning Platform", page_icon="⬛", layout="wide")
@@ -3127,7 +3346,7 @@ def main():
         if "selected_mode" not in st.session_state:
             st.session_state.selected_mode = "Chat 🤖"
 
-        main_tools = ["Chat 🤖", "Quiz 📝"]
+        main_tools = ["Chat 🤖", "Quiz 📝", "Admin 🔐"]
 
         for tool in main_tools:
             if st.button(tool, key=f"main_{tool}", use_container_width=True,
@@ -3185,6 +3404,7 @@ def main():
                             placeholder.markdown(full_response + "▌")
                         placeholder.markdown(full_response)
                     st.session_state.messages.append({"role": "assistant", "content": full_response})
+                    log_query(make_query_entry(p, full_response, rag_on))
                 else:
                     # Non-streaming fallback
                     with st.spinner("Thinking..."):
@@ -3194,6 +3414,7 @@ def main():
                         )
                         st.session_state.messages.append({"role": "assistant", "content": r})
                         st.chat_message("assistant").write(r)
+                        log_query(make_query_entry(p, r, rag_on))
             except Exception as e:
                 error_msg = "We encountered an issue processing your request. Please try again or contact support if the problem persists."
                 logger.error(f"Chat error: {e}", exc_info=True)
@@ -3416,6 +3637,9 @@ def main():
 
             with st.expander("Admin Export"):
                 st.download_button("Download JSON", json.dumps([q.model_dump() for q in questions], indent=2), "quiz.json")
+
+    elif mode == "Admin 🔐":
+        render_admin_panel()
 
 
 if __name__ == "__main__":
