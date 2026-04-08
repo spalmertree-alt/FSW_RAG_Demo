@@ -3153,8 +3153,429 @@ def render_visual_quiz(visual_service: VisualGradingService):
         st.error(f"Error loading image: {e}")
 
 
-def render_admin_panel():
-    """Password-gated admin dashboard showing query logs and topic flags."""
+# --- KA GENERATOR ---
+
+KA_TEMPLATE_PATH = os.path.join(os.path.dirname(__file__), "KA_Template.docx")
+
+GAP_DETECTION_PROMPT = """
+You are a quality reviewer for technical Knowledge Articles.
+
+TOPIC: {topic}
+
+RAG CONTENT RETRIEVED FROM MANUALS:
+{rag_content}
+
+A complete KA requires sufficient content in these five sections:
+1. Overview — a clear description of the topic
+2. Tier I Agent Actions — step-by-step triage or documentation steps
+3. User Solution — resolution or configuration steps with CLI commands if applicable
+4. Product/Operational Categories — what product and type of issue this is
+5. Keywords — searchable terms and aliases
+
+Review the content above and identify sections where information is MISSING or clearly insufficient.
+For each gap, generate ONE specific, answerable clarifying question to ask the requestor.
+
+Return ONLY a valid JSON array of question strings. Maximum 5 questions.
+If the content is sufficient for all sections, return an empty array: []
+
+Examples of good questions:
+["What CLI commands does the user need to run to resolve this issue?",
+ "What error symptoms should Tier I agents look for?",
+ "Which specific hardware model does this procedure apply to?"]
+"""
+
+KA_STRUCTURE_PROMPT = """
+You are a technical writer for a network infrastructure support team.
+Using ONLY the content provided below (gathered from official technical manuals),
+create a Knowledge Article (KA) draft.
+
+TOPIC: {topic}
+
+RAG CONTENT FROM MANUALS:
+{rag_content}
+
+Return a JSON object with EXACTLY these keys (no extra keys, no markdown fences):
+{{
+  "title": "Concise KA title (e.g. 'How to Configure OSPF on Aruba CX 8325')",
+  "category": "Primary product/system category (e.g. 'Aruba CX 8325 / PAN-OS')",
+  "overview": "2-4 sentence agent-facing summary of what this KA covers and when to use it.",
+  "tier1_actions": ["Step 1 ...", "Step 2 ...", "..."],
+  "user_solution": "Full user-facing resolution. Include CLI commands verbatim using code blocks (```). Include numbered steps.",
+  "op_category_t1": "e.g. Configuration / Fault-Failure / Installation / Troubleshooting",
+  "op_category_t2": "e.g. Routing / Switching / VPN / Hardware / Software",
+  "op_category_t3": "N/A or specific sub-category",
+  "product_category_t1": "e.g. Aruba Switches / EdgeConnect / Palo Alto / General",
+  "product_category_t2": "e.g. CX 8325 / SD-WAN / PA-1400 / PAN-OS",
+  "product_category_t3": "e.g. specific model or N/A",
+  "reason_for_escalation": "When to escalate beyond Tier I (or N/A)",
+  "keywords": "semicolon-separated keywords and aliases for search"
+}}
+
+Rules:
+- Only use information present in the RAG content. Do not add outside knowledge.
+- Keep tier1_actions as a JSON array of strings (each item is one step).
+- Keep user_solution as a single string with \\n for newlines.
+- If the RAG content does not cover a field, write "N/A".
+"""
+
+
+class KAGeneratorService:
+    """Generates Knowledge Article drafts from RAG content."""
+
+    def __init__(self, ai_provider):
+        self.ai = ai_provider
+
+    def gather_rag_content(self, topic: str) -> str:
+        """Call 1 (RAG ON): Retrieve all relevant manual content for the topic."""
+        prompt = (
+            f"Retrieve all information from the manuals about the following topic: {topic}\n\n"
+            "Include:\n"
+            "- Overview and description\n"
+            "- Step-by-step procedures or configuration steps\n"
+            "- CLI commands (copy verbatim)\n"
+            "- Prerequisites and requirements\n"
+            "- Troubleshooting steps and error codes\n"
+            "- Technical specifications and notes\n"
+            "- Any warnings or cautions\n\n"
+            "Organize the content clearly by sub-topic. "
+            "Include source citations (document name and page) for every piece of information."
+        )
+        course = get_active_course()
+        result = self.ai.generate_content(
+            prompt,
+            course.system_instruction,
+            use_rag=True,
+            model_override=MODEL_PRO,
+        )
+        return result if isinstance(result, str) else "".join(result)
+
+    def structure_ka(self, topic: str, rag_content: str) -> dict:
+        """Call 2 (RAG OFF): Format the retrieved content into KA template JSON."""
+        prompt = KA_STRUCTURE_PROMPT.format(topic=topic, rag_content=rag_content)
+        structuring_instruction = (
+            "You are a precise technical writer. Return ONLY valid JSON — no markdown, "
+            "no explanation, no code fences. Every field must be present."
+        )
+        raw = self.ai.generate_content(
+            prompt,
+            structuring_instruction,
+            use_rag=False,
+            model_override=MODEL_PRO,
+        )
+        text = raw if isinstance(raw, str) else "".join(raw)
+        # Strip any accidental markdown fences
+        text = re.sub(r"^```[a-z]*\n?", "", text.strip(), flags=re.IGNORECASE)
+        text = re.sub(r"\n?```$", "", text.strip())
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            # Attempt to extract JSON object from surrounding text
+            match = re.search(r'\{.*\}', text, re.DOTALL)
+            if match:
+                return json.loads(match.group())
+            raise ValueError(f"Could not parse KA JSON from model response:\n{text[:500]}")
+
+    def detect_gaps(self, topic: str, rag_content: str) -> List[str]:
+        """Check if RAG content covers all KA sections; return clarifying questions for any gaps."""
+        truncated = rag_content[:4000] if len(rag_content) > 4000 else rag_content
+        prompt = GAP_DETECTION_PROMPT.format(topic=topic, rag_content=truncated)
+        system = (
+            "You are a quality reviewer. Return ONLY a valid JSON array of strings. "
+            "No markdown code fences, no explanation — just the JSON array."
+        )
+        raw = self.ai.generate_content(prompt, system, use_rag=False, model_override=MODEL_FLASH)
+        text = raw if isinstance(raw, str) else "".join(raw)
+        text = re.sub(r"^```[a-z]*\n?", "", text.strip(), flags=re.IGNORECASE)
+        text = re.sub(r"\n?```$", "", text.strip())
+        try:
+            result = json.loads(text)
+            return result if isinstance(result, list) else []
+        except (json.JSONDecodeError, ValueError):
+            return []  # Graceful fallback — proceed without clarifying questions
+
+
+def _ka_set_cell_text(cell, text: str, bold_first_line: bool = False):
+    """Clear a table cell and write text, preserving paragraph styling."""
+    from docx.shared import Pt
+    for para in cell.paragraphs:
+        for run in para.runs:
+            run.text = ""
+    # Use the first paragraph, add runs for each line
+    if not cell.paragraphs:
+        cell.add_paragraph()
+    first_para = cell.paragraphs[0]
+    lines = text.split("\n")
+    for i, line in enumerate(lines):
+        if i == 0:
+            run = first_para.add_run(line)
+            if bold_first_line:
+                run.bold = True
+        else:
+            new_para = cell.add_paragraph()
+            new_para.add_run(line)
+
+
+def build_ka_docx(ka_data: dict) -> bytes:
+    """
+    Open KA_Template.docx, fill in AI-generated content, return DOCX bytes.
+
+    Table layout (0-indexed):
+      0 — Header: Title / Category
+      1 — Notes to Agent (Internal): Overview + Tier I Actions
+      2 — Solution (User Facing)
+      3 — Routing Categories
+      4 — Metatags / Keywords
+      5 — Change log / Job Aids  (left as template)
+    """
+    try:
+        from docx import Document as DocxDocument
+        from docx.shared import Pt
+        import copy
+    except ImportError:
+        raise ImportError("python-docx is required. Run: pip install python-docx")
+
+    doc = DocxDocument(KA_TEMPLATE_PATH)
+    tables = doc.tables
+
+    # ── Table 0: Title / Category ─────────────────────────────────────────
+    if len(tables) > 0:
+        t = tables[0]
+        # Row 1, col 2 → title value
+        if len(t.rows) > 1 and len(t.rows[1].cells) > 2:
+            _ka_set_cell_text(t.rows[1].cells[2], ka_data.get("title", ""), bold_first_line=True)
+        # Row 2, cols 1-2 → category value (merged)
+        if len(t.rows) > 2 and len(t.rows[2].cells) > 1:
+            _ka_set_cell_text(t.rows[2].cells[1], ka_data.get("category", ""))
+
+    # ── Table 1: Notes to Agent ───────────────────────────────────────────
+    if len(tables) > 1:
+        t = tables[1]
+        if len(t.rows) > 1:
+            tier1 = ka_data.get("tier1_actions", [])
+            tier1_text = "\n".join(f"• {step}" for step in tier1) if tier1 else "N/A"
+            content = (
+                f"Overview\n\n{ka_data.get('overview', '')}\n\n"
+                f"Tier I Agent Action\n\n"
+                f"Document the following information prior to escalation or resolution:\n\n"
+                f"{tier1_text}"
+            )
+            _ka_set_cell_text(t.rows[1].cells[0], content)
+
+    # ── Table 2: Solution ─────────────────────────────────────────────────
+    if len(tables) > 2:
+        t = tables[2]
+        if len(t.rows) > 1:
+            solution = f"User Solution\n\n{ka_data.get('user_solution', '')}"
+            _ka_set_cell_text(t.rows[1].cells[0], solution)
+
+    # ── Table 3: Routing Categories ───────────────────────────────────────
+    if len(tables) > 3:
+        t = tables[3]
+        category_values = {
+            2: ka_data.get("op_category_t1", ""),
+            3: ka_data.get("op_category_t2", ""),
+            4: ka_data.get("op_category_t3", "N/A"),
+            5: ka_data.get("product_category_t1", ""),
+            6: ka_data.get("product_category_t2", ""),
+            7: ka_data.get("product_category_t3", "N/A"),
+            8: ka_data.get("reason_for_escalation", "N/A"),
+        }
+        for row_idx, value in category_values.items():
+            if row_idx < len(t.rows) and len(t.rows[row_idx].cells) > 1:
+                _ka_set_cell_text(t.rows[row_idx].cells[1], value)
+
+    # ── Table 4: Metatags / Keywords ──────────────────────────────────────
+    if len(tables) > 4:
+        t = tables[4]
+        if len(t.rows) > 2:
+            _ka_set_cell_text(t.rows[2].cells[0], ka_data.get("keywords", ""))
+
+    # ── Serialize to bytes ────────────────────────────────────────────────
+    buffer = BytesIO()
+    doc.save(buffer)
+    return buffer.getvalue()
+
+
+def render_ka_generator(ai_provider):
+    """KA Generator — state-machine flow with clarifying Q&A for content gaps."""
+    from collections import Counter
+
+    ka_service = KAGeneratorService(ai_provider)
+
+    def _clear_ka():
+        for k in ("ka_topic", "ka_rag_content", "ka_clarifying_questions",
+                  "ka_clarifying_answers", "ka_data"):
+            st.session_state.pop(k, None)
+
+    # Read state
+    ka_topic = st.session_state.get("ka_topic", "")
+    ka_rag = st.session_state.get("ka_rag_content")
+    ka_questions = st.session_state.get("ka_clarifying_questions")  # None=not run yet
+    ka_answers = st.session_state.get("ka_clarifying_answers", [])
+    ka_data = st.session_state.get("ka_data")
+
+    # ── STATE 1: Topic selection (no RAG content yet) ─────────────────────
+    if not ka_rag:
+        st.caption(
+            "Generates a draft KA using the technical manuals. "
+            "Topics are pre-populated from the query log above."
+        )
+
+        log = st.session_state.get("query_log", [])
+        suggested = []
+        if log:
+            df_log = pd.DataFrame(log)
+            counts = Counter(df_log["question"].str.strip().tolist())
+            suggested = [q for q, _ in counts.most_common(10)]
+
+        topic_options = ["(type your own below)"] + suggested
+        selected = st.selectbox(
+            "Topic from query log:", options=topic_options, key="ka_topic_select"
+        )
+        custom = st.text_input(
+            "Or enter a custom topic:", key="ka_topic_input",
+            placeholder="e.g. Configure OSPF on Aruba CX 8325"
+        )
+
+        active_topic = custom.strip() if custom.strip() else (
+            selected if selected != "(type your own below)" else ""
+        )
+
+        if not active_topic:
+            st.warning("Select or enter a topic to continue.")
+            return
+
+        st.info(f"**Topic:** {active_topic}")
+
+        if st.button("📚 Gather Manual Content", type="primary", key="ka_gather_btn"):
+            with st.spinner("Querying manuals via RAG… this may take 20–30 seconds."):
+                try:
+                    rag = ka_service.gather_rag_content(active_topic)
+                    questions = ka_service.detect_gaps(active_topic, rag)
+                    st.session_state["ka_topic"] = active_topic
+                    st.session_state["ka_rag_content"] = rag
+                    st.session_state["ka_clarifying_questions"] = questions
+                    st.session_state["ka_clarifying_answers"] = []
+                    st.session_state.pop("ka_data", None)
+                except Exception as e:
+                    st.error(f"Error gathering content: {e}")
+                    logger.error(f"KA RAG gather error: {e}", exc_info=True)
+                    return
+            st.rerun()
+        return  # Wait for button press
+
+    # Header row: topic label + start-over button
+    h_col, r_col = st.columns([4, 1])
+    with h_col:
+        st.markdown(f"**Topic:** {ka_topic}")
+    with r_col:
+        if st.button("↩ Start Over", key="ka_start_over"):
+            _clear_ka()
+            st.rerun()
+
+    # ── STATE 2: Clarifying questions (one at a time) ─────────────────────
+    if ka_questions is not None and len(ka_answers) < len(ka_questions):
+        idx = len(ka_answers)
+        total = len(ka_questions)
+
+        st.info(
+            f"**Question {idx + 1} of {total}** — "
+            "Some information is missing from the manuals. Please answer to improve the KA:"
+        )
+        st.markdown(f"#### {ka_questions[idx]}")
+
+        answer = st.text_area(
+            "Your answer:", key=f"ka_answer_{idx}",
+            placeholder="Type your answer here…", height=110
+        )
+
+        a_col, s_col = st.columns(2)
+        with a_col:
+            if st.button("Submit Answer →", type="primary", key=f"ka_submit_{idx}"):
+                if answer.strip():
+                    st.session_state["ka_clarifying_answers"] = ka_answers + [answer.strip()]
+                    st.rerun()
+                else:
+                    st.warning("Please enter an answer or click Skip.")
+        with s_col:
+            if st.button("Skip Question", key=f"ka_skip_{idx}"):
+                st.session_state["ka_clarifying_answers"] = ka_answers + ["(no information provided)"]
+                st.rerun()
+        return  # Hold here until all Qs answered
+
+    # ── STATE 3: Build KA (all Qs answered or no gaps found) ─────────────
+    if not ka_data:
+        if ka_questions:
+            st.success(f"✅ {len(ka_questions)} clarifying question(s) answered. Ready to build.")
+        else:
+            st.success("✅ Manual content retrieved — no gaps detected. Ready to build.")
+
+        if st.button("✍️ Build KA Draft", type="primary", key="ka_build_btn"):
+            with st.spinner("Structuring KA draft… Pro model — may take 30–60 seconds."):
+                try:
+                    full_content = ka_rag
+                    if ka_questions and ka_answers:
+                        supplement = "\n\nADDITIONAL CONTEXT FROM REQUESTOR:\n"
+                        for q, a in zip(ka_questions, ka_answers):
+                            supplement += f"Q: {q}\nA: {a}\n\n"
+                        full_content += supplement
+                    data = ka_service.structure_ka(ka_topic, full_content)
+                    st.session_state["ka_data"] = data
+                except Exception as e:
+                    st.error(f"Error building KA: {e}")
+                    logger.error(f"KA structure error: {e}", exc_info=True)
+                    return
+            st.rerun()
+        return
+
+    # ── STATE 4: Preview + download ───────────────────────────────────────
+    st.success("✅ KA draft ready.")
+
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown(f"**Title:** {ka_data.get('title', '')}")
+        st.markdown(f"**Category:** {ka_data.get('category', '')}")
+        st.markdown(f"**Keywords:** {ka_data.get('keywords', '')}")
+    with c2:
+        st.markdown(
+            f"**Op:** {ka_data.get('op_category_t1','')} / "
+            f"{ka_data.get('op_category_t2','')} / {ka_data.get('op_category_t3','')}"
+        )
+        st.markdown(
+            f"**Product:** {ka_data.get('product_category_t1','')} / "
+            f"{ka_data.get('product_category_t2','')} / {ka_data.get('product_category_t3','')}"
+        )
+        st.markdown(f"**Escalation:** {ka_data.get('reason_for_escalation', '')}")
+
+    with st.expander("📋 Notes to Agent (Internal)", expanded=False):
+        st.markdown(f"**Overview**\n\n{ka_data.get('overview', '')}")
+        tier1 = ka_data.get("tier1_actions", [])
+        if tier1:
+            st.markdown("**Tier I Agent Actions**")
+            for step in tier1:
+                st.markdown(f"- {step}")
+
+    with st.expander("🔧 User Solution (Portal Facing)", expanded=False):
+        st.markdown(ka_data.get("user_solution", ""))
+
+    try:
+        docx_bytes = build_ka_docx(ka_data)
+        slug = re.sub(r'[^a-zA-Z0-9]+', '_', ka_topic)[:40]
+        fname = f"KA_{slug}_{datetime.now().strftime('%Y%m%d')}.docx"
+        st.download_button(
+            "⬇️ Download KA as .docx", data=docx_bytes, file_name=fname,
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            key="ka_download_btn",
+        )
+    except ImportError:
+        st.error("python-docx not installed. Add `python-docx` to requirements.txt and restart.")
+    except Exception as e:
+        st.error(f"Error building DOCX: {e}")
+        logger.error(f"DOCX build error: {e}", exc_info=True)
+
+
+def render_admin_panel(ai_provider):
+    """Password-gated admin dashboard showing query logs, topic flags, and KA generator."""
     from collections import Counter
 
     st.title("🔐 Admin Dashboard")
@@ -3180,6 +3601,9 @@ def render_admin_panel():
     log = st.session_state.get("query_log", [])
     if not log:
         st.info("No queries logged yet. Chat with the assistant to populate this dashboard.")
+        st.divider()
+        with st.expander("📄 Knowledge Article Generator", expanded=False):
+            render_ka_generator(ai_provider)
         return
 
     df = pd.DataFrame(log)
@@ -3291,6 +3715,11 @@ def render_admin_panel():
             pass
         st.success("Query log cleared.")
         st.rerun()
+
+    # ── KA Generator ──────────────────────────────────────────────────────────
+    st.divider()
+    with st.expander("📄 Knowledge Article Generator", expanded=False):
+        render_ka_generator(ai_provider)
 
 
 def main():
@@ -3639,7 +4068,7 @@ def main():
                 st.download_button("Download JSON", json.dumps([q.model_dump() for q in questions], indent=2), "quiz.json")
 
     elif mode == "Admin 🔐":
-        render_admin_panel()
+        render_admin_panel(ai_provider)
 
 
 if __name__ == "__main__":
