@@ -3165,12 +3165,15 @@ TOPIC: {topic}
 RAG CONTENT RETRIEVED FROM MANUALS:
 {rag_content}
 
-A complete KA requires sufficient content in these five sections:
-1. Overview — a clear description of the topic
-2. Tier I Agent Actions — step-by-step triage or documentation steps
-3. User Solution — resolution or configuration steps with CLI commands if applicable
-4. Product/Operational Categories — what product and type of issue this is
-5. Keywords — searchable terms and aliases
+A complete KA requires sufficient content to fill these key sections:
+1. Overview — a clear description of the topic and when to use this KA
+2. Location/System Details — affected product, model, component, and location identifiers
+3. Error Messages & Symptoms — specific error codes, messages, and diagnostic indicators
+4. Underlying Issues — environmental, physical, or operational root causes
+5. Steps Taken / Resolution — configuration steps, CLI commands, or remediation actions
+6. Impact Assessment — effect on users or command operations
+7. Escalation Path — who or what queue to escalate to if unresolved
+8. Keywords — searchable terms and product aliases
 
 Review the content above and identify sections where information is MISSING or clearly insufficient.
 For each gap, generate ONE specific, answerable clarifying question to ask the requestor.
@@ -3180,65 +3183,92 @@ If the content is sufficient for all sections, return an empty array: []
 
 Examples of good questions:
 ["What CLI commands does the user need to run to resolve this issue?",
- "What error symptoms should Tier I agents look for?",
- "Which specific hardware model does this procedure apply to?"]
+ "What specific error symptoms should Tier I agents look for?",
+ "Which hardware model and software version does this procedure apply to?"]
 """
 
 KA_STRUCTURE_PROMPT = """
 You are a technical writer for a network infrastructure support team.
 Using ONLY the content provided below (gathered from official technical manuals),
-create a Knowledge Article (KA) draft.
+fill in the cyan (variable) fields of a Knowledge Article for this topic.
 
 TOPIC: {topic}
 
 RAG CONTENT FROM MANUALS:
 {rag_content}
 
-Return a JSON object with EXACTLY these keys (no extra keys, no markdown fences):
+Return a JSON object with EXACTLY these keys. Do NOT add or remove keys.
+All string fields default to "N/A" if the manuals do not cover them.
+All list fields default to [] if not applicable.
+
 {{
-  "title": "Concise KA title (e.g. 'How to Configure OSPF on Aruba CX 8325')",
-  "category": "Primary product/system category (e.g. 'Aruba CX 8325 / PAN-OS')",
-  "overview": "2-4 sentence agent-facing summary of what this KA covers and when to use it.",
-  "tier1_actions": [
-    {{
-      "title": "Action category title (e.g. 'Location Data')",
-      "sub_items": [
-        "First specific item to collect or verify",
-        "Second specific item to collect or verify"
-      ]
-    }}
+  "title": "Concise KA title",
+
+  "overview": "2-4 sentences describing what this KA covers and when to use it.",
+
+  "t1_location_sub": "Topic-specific location or device identifier guidance (e.g. hull number, IP, rack location).",
+  "t1_system_subs": [
+    "Affected product name and category (e.g. Aruba CX 8325 Switch)",
+    "Component nomenclature, serial number, part number, and rack/U location"
   ],
-  "user_solution_steps": [
-    {{
-      "step": "Step title or instruction (e.g. 'Verify interface status')",
-      "details": [
-        "Specific detail, sub-step, or CLI command",
-        "Another detail or expected output"
-      ]
-    }}
+  "t1_error_subs": [
+    "Specific error messages or error codes relevant to this topic",
+    "Relevant logs, screenshots, or diagnostic output to collect"
   ],
-  "op_category_t1": "e.g. Configuration / Fault-Failure / Installation / Troubleshooting",
-  "op_category_t2": "e.g. Routing / Switching / VPN / Hardware / Software",
+  "t1_underlying_subs": [
+    "Environmental conditions that may contribute (climate, sea state, etc.)",
+    "Physical conditions that may contribute (power, hardware failures, etc.)",
+    "Operational conditions that may contribute (config issues, patches, software bugs, etc.)",
+    "Immediate actions taken to address the error",
+    "Associated documentation or references"
+  ],
+  "t1_steps_sub": "Specific steps taken or documentation followed when the issue was encountered.",
+  "t1_impact_sub": "Impact on command operations or users (system unavailability, CASREP, degraded performance, etc.).",
+  "t1_escalation": "Team, contact, or ticket queue to escalate to (replace TBD with specific target).",
+
+  "t2_location_sub": "Ship class/hull number or device-specific location the user should provide.",
+  "t2_contact_subs": [
+    "Email and phone guidance for primary and secondary contacts.",
+    "Quarterdeck or Radio/ADP phone guidance if available."
+  ],
+  "t2_system_subs": [
+    "Affected product name and category the user should identify.",
+    "Component, serial number, part number, and rack/U location the user should provide."
+  ],
+  "t2_incident_subs": [
+    "Detailed description of the error and actions taken prior.",
+    "Symptoms observed (system messages, alerts, inoperable systems, etc.).",
+    "Any documentation or KAs already attempted."
+  ],
+  "t2_error_subs": [
+    "All error messages or error codes the user should capture.",
+    "Relevant logs, screenshots, or documentation the user should provide."
+  ],
+  "t2_underlying_subs": [
+    "Environmental conditions the user should note.",
+    "Physical conditions the user should note.",
+    "Operational conditions the user should note."
+  ],
+  "t2_actions_sub": "Associated documentation for any immediate actions taken.",
+  "t2_impact_sub": "Impact on command operations or users the user should describe.",
+
+  "op_category_t1": "e.g. Fault-Failure / Configuration / Installation / Troubleshooting",
+  "op_category_t2": "e.g. Hardware / Software / Routing / Switching / VPN",
   "op_category_t3": "N/A or specific sub-category",
   "product_category_t1": "e.g. Aruba Switches / EdgeConnect / Palo Alto / General",
   "product_category_t2": "e.g. CX 8325 / SD-WAN / PA-1400 / PAN-OS",
-  "product_category_t3": "e.g. specific model or N/A",
-  "reason_for_escalation": "When to escalate beyond Tier I (or N/A)",
-  "keywords": "semicolon-separated keywords and aliases for search"
+  "product_category_t3": "Specific model or N/A",
+  "reason_for_escalation": "When and why to escalate beyond Tier I.",
+  "keywords": "semicolon-separated keywords, error codes, product names, and aliases for search"
 }}
 
 Rules:
-- Only use information present in the RAG content. Do not add outside knowledge.
-- tier1_actions MUST be an array of objects with "title" (string) and "sub_items" (array of strings).
-  Each object = one numbered action. Each sub_item = one bullet under that action.
-  Model the structure after this example from the template:
-    {{"title": "Location Data", "sub_items": ["Ship Class / Hull Number (no geographical info)"]}}
-    {{"title": "Contact Information", "sub_items": ["Email and phone for primary/secondary contacts", "Quarterdeck or Radio/ADP phone if available"]}}
-    {{"title": "System Error Details", "sub_items": ["Affected product name and category", "Component serial number, part number, and rack location"]}}
-- user_solution_steps MUST be an array of objects with "step" (string) and "details" (array of strings).
-  Each object = one numbered step. Each detail = one sub-bullet under that step.
-- If the RAG content does not cover a field, write "N/A" for string fields or [] for array fields.
-- Produce at minimum 5 tier1_actions and 3 user_solution_steps if content supports it.
+- Use ONLY information from the RAG content. Do not add outside knowledge.
+- t1_system_subs and t1_error_subs MUST be a list of exactly 2 strings.
+- t1_underlying_subs MUST be a list of exactly 5 strings.
+- t2_contact_subs, t2_system_subs, t2_error_subs, t2_underlying_subs MUST each be a list of exactly the number of items shown above.
+- t2_incident_subs MUST be a list of exactly 3 strings.
+- Return valid JSON only — no markdown fences, no extra keys.
 """
 
 
@@ -3483,68 +3513,148 @@ def build_ka_docx(ka_data: dict, metadata: Optional[dict] = None) -> bytes:
             _cell_clear(cell)
             _cell_p(cell, ka_data.get("category", ""), use_first=True)
 
-    # ── Table 1: Notes to Agent ───────────────────────────────────────────
+    # ── Table 1: Notes to Agent (Internal Use Only) ───────────────────────
+    # GREEN = static/hardcoded  |  CYAN = AI-generated from ka_data
     if len(tables) > 1:
         t = tables[1]
         if len(t.rows) > 1:
             cell = t.rows[1].cells[0]
             _cell_clear(cell)
 
-            # "Overview" heading
+            # Overview [CYAN heading + CYAN paragraph]
             _cell_p(cell, "Overview", bold=True, use_first=True)
             _cell_p(cell, " ")
             _cell_p(cell, ka_data.get("overview", ""))
             _cell_p(cell, " ")
 
-            # "Tier I Agent Action" heading
+            # Tier I header [STATIC]
             _cell_p(cell, "Tier I Agent Action", bold=True)
             _cell_p(cell, " ")
             _cell_p(cell, "Document the following information prior to escalation.")
             _cell_p(cell, " ")
 
-            # Numbered actions with sub-bullets
-            tier1 = ka_data.get("tier1_actions", [])
-            for i, action in enumerate(tier1, 1):
-                if isinstance(action, dict):
-                    title = action.get("title", "")
-                    sub_items = action.get("sub_items", [])
-                else:
-                    title = str(action)
-                    sub_items = []
-                # Numbered title line
-                _cell_p(cell, f"{i}.\t{title}.", bold=True)
-                # Sub-bullets indented
-                for sub in sub_items:
-                    _cell_p(cell, f"\u2022\t{sub}", indent_inches=0.35)
+            # 1. Location Data [STATIC title, CYAN sub]
+            _cell_p(cell, "1.\tLocation Data.", bold=True)
+            _cell_p(cell, f"\u2022\t{ka_data.get('t1_location_sub', 'Ship Class / Hull Number (Do not request any geographical information)')}", indent_inches=0.35)
 
-    # ── Table 2: Solution ─────────────────────────────────────────────────
+            # 2. Contact Information [STATIC title, STATIC subs]
+            _cell_p(cell, "2.\tContact Information.", bold=True)
+            _cell_p(cell, "\u2022\tEmail and Phone (if available) for primary and secondary contacts.", indent_inches=0.35)
+            _cell_p(cell, "\u2022\tQuarterdeck or Radio/ADP phone (if available).", indent_inches=0.35)
+
+            # 3. System error details [STATIC title, CYAN subs]
+            _cell_p(cell, "3.\tSystem error details.", bold=True)
+            for sub in ka_data.get("t1_system_subs", ["Provide affected product name and category.", "Specific component nomenclature, serial and part number, and rack location (\"U\" Location)."]):
+                _cell_p(cell, f"\u2022\t{sub}", indent_inches=0.35)
+
+            # 4. Incident Details [STATIC title, STATIC subs]
+            _cell_p(cell, "4.\tIncident Details.", bold=True)
+            _cell_p(cell, "\u2022\tDetailed description of the error along with any actions taken prior to the error.", indent_inches=0.35)
+            _cell_p(cell, "\u2022\tWhat symptoms were observed (system message, email alert, system inoperable, etc.)?", indent_inches=0.35)
+            _cell_p(cell, "\u2022\tAny documentation/KAs attempted following the error.", indent_inches=0.35)
+
+            # 5. Any Error Messages [STATIC title, CYAN subs]
+            _cell_p(cell, "5.\tAny Error Messages or prompts encountered.", bold=True)
+            for sub in ka_data.get("t1_error_subs", ["All error messages or error codes encountered.", "Any relevant logs, screenshots, or documentation."]):
+                _cell_p(cell, f"\u2022\t{sub}", indent_inches=0.35)
+
+            # 6. Underlying issues [STATIC title, CYAN subs]
+            _cell_p(cell, "6.\tAny underlying or associated issues that may have contributed to the incident.", bold=True)
+            for sub in ka_data.get("t1_underlying_subs", [
+                "Environmental conditions (impactful climate, sea state, etc.)",
+                "Physical conditions (power outages, hardware failures, etc.)",
+                "Operational conditions (software bugs, configuration issues, patches, etc.)",
+                "Any immediate actions taken to address the error.",
+                "Associated documentation",
+            ]):
+                _cell_p(cell, f"\u2022\t{sub}", indent_inches=0.35)
+
+            # 7. Steps taken [STATIC title, CYAN sub]
+            _cell_p(cell, "7.\tAny steps taken to address the issue when it was encountered.", bold=True)
+            _cell_p(cell, f"\u2022\t{ka_data.get('t1_steps_sub', 'Associated documentation')}", indent_inches=0.35)
+
+            # 8. Impact Assessment [STATIC title, CYAN sub]
+            _cell_p(cell, "8.\tImpact Assessment", bold=True)
+            _cell_p(cell, f"\u2022\t{ka_data.get('t1_impact_sub', 'Any impact on command operations or users? (system unavailability, performance degradation, CASREP, etc.)')}", indent_inches=0.35)
+
+            # Footer [STATIC + CYAN escalation target]
+            _cell_p(cell, " ")
+            _cell_p(cell, "Attach this knowledge article to the incident.")
+            escalation = ka_data.get("t1_escalation", "TBD")
+            _cell_p(cell, f"\u2022\tEscalate the incident to {escalation}", indent_inches=0.35)
+            _cell_p(cell, "\u2022\tCurrently there are no KAs that support a user or Tier I solution.", indent_inches=0.35)
+
+    # ── Table 2: Solution (Portal / User Facing) ──────────────────────────
+    # GREEN = static section headers  |  CYAN = AI-generated sub-bullets
     if len(tables) > 2:
         t = tables[2]
         if len(t.rows) > 1:
             cell = t.rows[1].cells[0]
             _cell_clear(cell)
 
-            # "User Solution" heading
+            # Header [STATIC]
             _cell_p(cell, "User Solution", bold=True, use_first=True)
             _cell_p(cell, " ")
+            _cell_p(cell, "Collect the following information to provide to supporting agents:")
+            _cell_p(cell, " ")
 
-            steps = ka_data.get("user_solution_steps", [])
-            if steps:
-                for i, step in enumerate(steps, 1):
-                    if isinstance(step, dict):
-                        step_text = step.get("step", "")
-                        details = step.get("details", [])
-                    else:
-                        step_text = str(step)
-                        details = []
-                    _cell_p(cell, f"{i}.\t{step_text}", bold=True)
-                    for detail in details:
-                        _cell_p(cell, f"\u2022\t{detail}", indent_inches=0.35)
-            else:
-                # Fallback if old-format user_solution string present
-                for line in ka_data.get("user_solution", "").split("\n"):
-                    if line.strip():
-                        _cell_p(cell, line.strip())
+            # Location Data [STATIC title, CYAN sub]
+            _cell_p(cell, "Location Data.", bold=True)
+            _cell_p(cell, f"\u2022\t{ka_data.get('t2_location_sub', 'Ship Class / Hull Number (Do not provide any geographical information)')}", indent_inches=0.35)
+
+            # Contact Information [STATIC title, CYAN subs]
+            _cell_p(cell, "Contact Information", bold=True)
+            for sub in ka_data.get("t2_contact_subs", [
+                "Email and Phone (if available) for primary and secondary contacts.",
+                "Quarterdeck or Radio/ADP phone (if available).",
+            ]):
+                _cell_p(cell, f"\u2022\t{sub}", indent_inches=0.35)
+
+            # System error details [STATIC title, CYAN subs]
+            _cell_p(cell, "System error details.", bold=True)
+            for sub in ka_data.get("t2_system_subs", [
+                "Provide affected product name category.",
+                "Specific component, serial and part number, and rack (\"U\") location.",
+            ]):
+                _cell_p(cell, f"\u2022\t{sub}", indent_inches=0.35)
+
+            # Incident Details [STATIC title, CYAN subs]
+            _cell_p(cell, "Incident Details.", bold=True)
+            for sub in ka_data.get("t2_incident_subs", [
+                "Detailed description of the error along with any actions taken prior to the error.",
+                "What symptoms were observed (system message, email alert, system inoperable, etc.)?",
+                "Any documentation/KAs attempted following the error.",
+            ]):
+                _cell_p(cell, f"\u2022\t{sub}", indent_inches=0.35)
+
+            # Error Messages [STATIC title, CYAN subs]
+            _cell_p(cell, "Any Error Messages or prompts encountered.", bold=True)
+            for sub in ka_data.get("t2_error_subs", [
+                "All error messages or error codes encountered.",
+                "Please provide any relevant logs, screenshots, or documentation.",
+            ]):
+                _cell_p(cell, f"\u2022\t{sub}", indent_inches=0.35)
+
+            # Underlying issues [STATIC title, CYAN subs]
+            _cell_p(cell, "Any underlying or associated issues that may have contributed to the incident.", bold=True)
+            for sub in ka_data.get("t2_underlying_subs", [
+                "Environmental conditions (impactful climate, sea state, etc.)",
+                "Physical conditions (power outages, hardware failures, etc.)",
+                "Operational conditions (software bugs, configuration issues, patches, etc.)",
+            ]):
+                _cell_p(cell, f"\u2022\t{sub}", indent_inches=0.35)
+
+            # Immediate actions [STATIC title, CYAN sub]
+            _cell_p(cell, "Any immediate actions taken to address the error.", bold=True)
+            _cell_p(cell, f"\u2022\t{ka_data.get('t2_actions_sub', 'Associated documentation')}", indent_inches=0.35)
+
+            # Impact Assessment [STATIC title, CYAN sub]
+            _cell_p(cell, "Impact Assessment", bold=True)
+            _cell_p(cell, f"\u2022\t{ka_data.get('t2_impact_sub', 'Any impact on command operations or users? (system unavailability, performance degradation, CASREP, etc.)')}", indent_inches=0.35)
+
+            # Footer [STATIC]
+            _cell_p(cell, " ")
+            _cell_p(cell, "Attach this knowledge article to the incident.")
 
     # ── Table 3: Routing Categories ───────────────────────────────────────
     if len(tables) > 3:
@@ -3789,31 +3899,44 @@ def render_ka_generator(ai_provider):
         )
         st.markdown(f"**Escalation:** {ka_data.get('reason_for_escalation', '')}")
 
-    with st.expander("📋 Notes to Agent (Internal)", expanded=False):
+    with st.expander("📋 Notes to Agent — Table 1 (Internal)", expanded=False):
         st.markdown(f"**Overview**\n\n{ka_data.get('overview', '')}")
-        tier1 = ka_data.get("tier1_actions", [])
-        if tier1:
-            st.markdown("**Tier I Agent Actions**")
-            for i, action in enumerate(tier1, 1):
-                if isinstance(action, dict):
-                    st.markdown(f"**{i}. {action.get('title', '')}**")
-                    for sub in action.get("sub_items", []):
-                        st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;• {sub}")
-                else:
-                    st.markdown(f"{i}. {action}")
+        st.markdown("---")
+        st.markdown(f"**1. Location Data**\n\n&nbsp;&nbsp;&nbsp;&nbsp;• {ka_data.get('t1_location_sub', 'N/A')}")
+        st.markdown("**2. Contact Information** *(static — see template)*")
+        t1_sys = ka_data.get("t1_system_subs", [])
+        sys_md = "\n".join(f"&nbsp;&nbsp;&nbsp;&nbsp;• {s}" for s in t1_sys) if t1_sys else "&nbsp;&nbsp;&nbsp;&nbsp;• N/A"
+        st.markdown(f"**3. System Error Details**\n\n{sys_md}")
+        st.markdown("**4. Incident Details** *(static — see template)*")
+        t1_err = ka_data.get("t1_error_subs", [])
+        err_md = "\n".join(f"&nbsp;&nbsp;&nbsp;&nbsp;• {s}" for s in t1_err) if t1_err else "&nbsp;&nbsp;&nbsp;&nbsp;• N/A"
+        st.markdown(f"**5. Any Error Messages**\n\n{err_md}")
+        t1_und = ka_data.get("t1_underlying_subs", [])
+        und_md = "\n".join(f"&nbsp;&nbsp;&nbsp;&nbsp;• {s}" for s in t1_und) if t1_und else "&nbsp;&nbsp;&nbsp;&nbsp;• N/A"
+        st.markdown(f"**6. Any Underlying Issues**\n\n{und_md}")
+        st.markdown(f"**7. Any Steps Taken**\n\n&nbsp;&nbsp;&nbsp;&nbsp;• {ka_data.get('t1_steps_sub', 'N/A')}")
+        st.markdown(f"**8. Impact Assessment**\n\n&nbsp;&nbsp;&nbsp;&nbsp;• {ka_data.get('t1_impact_sub', 'N/A')}")
+        st.markdown(f"\n**Escalation:** {ka_data.get('t1_escalation', 'N/A')}")
 
-    with st.expander("🔧 User Solution (Portal Facing)", expanded=False):
-        steps = ka_data.get("user_solution_steps", [])
-        if steps:
-            for i, step in enumerate(steps, 1):
-                if isinstance(step, dict):
-                    st.markdown(f"**{i}. {step.get('step', '')}**")
-                    for detail in step.get("details", []):
-                        st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;• {detail}")
-                else:
-                    st.markdown(f"{i}. {step}")
-        else:
-            st.markdown(ka_data.get("user_solution", ""))
+    with st.expander("🔧 User Solution — Table 2 (Portal Facing)", expanded=False):
+        st.markdown(f"**1. Location Data**\n\n&nbsp;&nbsp;&nbsp;&nbsp;• {ka_data.get('t2_location_sub', 'N/A')}")
+        t2_con = ka_data.get("t2_contact_subs", [])
+        con_md = "\n".join(f"&nbsp;&nbsp;&nbsp;&nbsp;• {s}" for s in t2_con) if t2_con else "&nbsp;&nbsp;&nbsp;&nbsp;• N/A"
+        st.markdown(f"**2. Contact Information**\n\n{con_md}")
+        t2_sys = ka_data.get("t2_system_subs", [])
+        sys2_md = "\n".join(f"&nbsp;&nbsp;&nbsp;&nbsp;• {s}" for s in t2_sys) if t2_sys else "&nbsp;&nbsp;&nbsp;&nbsp;• N/A"
+        st.markdown(f"**3. System Error Details**\n\n{sys2_md}")
+        t2_inc = ka_data.get("t2_incident_subs", [])
+        inc_md = "\n".join(f"&nbsp;&nbsp;&nbsp;&nbsp;• {s}" for s in t2_inc) if t2_inc else "&nbsp;&nbsp;&nbsp;&nbsp;• N/A"
+        st.markdown(f"**4. Incident Details**\n\n{inc_md}")
+        t2_err = ka_data.get("t2_error_subs", [])
+        err2_md = "\n".join(f"&nbsp;&nbsp;&nbsp;&nbsp;• {s}" for s in t2_err) if t2_err else "&nbsp;&nbsp;&nbsp;&nbsp;• N/A"
+        st.markdown(f"**5. Any Error Messages**\n\n{err2_md}")
+        t2_und = ka_data.get("t2_underlying_subs", [])
+        und2_md = "\n".join(f"&nbsp;&nbsp;&nbsp;&nbsp;• {s}" for s in t2_und) if t2_und else "&nbsp;&nbsp;&nbsp;&nbsp;• N/A"
+        st.markdown(f"**6. Any Underlying Issues**\n\n{und2_md}")
+        st.markdown(f"**7. Any Immediate Actions**\n\n&nbsp;&nbsp;&nbsp;&nbsp;• {ka_data.get('t2_actions_sub', 'N/A')}")
+        st.markdown(f"**8. Impact Assessment**\n\n&nbsp;&nbsp;&nbsp;&nbsp;• {ka_data.get('t2_impact_sub', 'N/A')}")
 
     # ── Administrative metadata (populates Table 5 dropdowns) ────────────
     st.subheader("Administrative Fields")
