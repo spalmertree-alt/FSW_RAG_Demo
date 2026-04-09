@@ -3250,43 +3250,75 @@ class KAGeneratorService:
 
     def gather_rag_content(self, topic: str,
                            multi_topics: Optional[List[str]] = None) -> str:
-        """Call 1 (RAG ON): Retrieve all relevant manual content for the topic(s)."""
+        """Call 1 (RAG ON): Retrieve and synthesize manual content for the topic(s)."""
         if multi_topics and len(multi_topics) > 1:
             topics_list = "\n".join(f"  - {t}" for t in multi_topics)
-            prompt = (
-                f"Retrieve all information from the manuals about each of these related topics:\n"
+            primary_prompt = (
+                f"Search the manuals for information about each of these related topics:\n"
                 f"{topics_list}\n\n"
-                "For EACH topic include:\n"
-                "- Overview / description of what it is\n"
-                "- Error causes and symptoms (for error codes: severity, meaning, affected component)\n"
-                "- Step-by-step resolution or configuration steps\n"
-                "- CLI commands verbatim\n"
+                "For EACH topic, synthesize and describe in your own words:\n"
+                "- What the topic is and its significance\n"
+                "- Error causes, symptoms, and severity (for error codes)\n"
+                "- Resolution or configuration steps\n"
+                "- Key CLI commands or settings (describe what they do)\n"
                 "- Prerequisites and requirements\n"
-                "- Warnings or cautions\n\n"
-                "Clearly label each topic's content with a heading. "
-                "Include source citations (document name and page) for every piece of information."
+                "- Warnings or important notes\n\n"
+                "Clearly label each topic with a heading. "
+                "Cite the source document and page number for each item. "
+                "Synthesize the information — do not reproduce large blocks of text verbatim."
+            )
+            safe_prompt = (
+                f"Briefly summarize what the manuals say about each of these topics:\n"
+                f"{topics_list}\n\n"
+                "Give a concise overview of each, noting the key technical points, "
+                "steps, and any CLI commands involved. Paraphrase; do not copy text directly."
             )
         else:
-            prompt = (
-                f"Retrieve all information from the manuals about: {topic}\n\n"
-                "Include:\n"
-                "- Overview and description\n"
+            primary_prompt = (
+                f"Search the manuals for information about: {topic}\n\n"
+                "Synthesize and describe in your own words:\n"
+                "- Overview and what this topic covers\n"
                 "- Step-by-step procedures or configuration steps\n"
-                "- CLI commands (copy verbatim)\n"
+                "- Key CLI commands and what they do\n"
                 "- Prerequisites and requirements\n"
-                "- Troubleshooting steps and error codes\n"
-                "- Technical specifications and notes\n"
+                "- Troubleshooting guidance and error descriptions\n"
+                "- Technical specifications and important notes\n"
                 "- Any warnings or cautions\n\n"
-                "Organize the content clearly by sub-topic. "
-                "Include source citations (document name and page) for every piece of information."
+                "Organize clearly by sub-topic. "
+                "Cite the source document and page number for each item. "
+                "Synthesize the information — do not reproduce large blocks of text verbatim."
             )
+            safe_prompt = (
+                f"Briefly summarize what the manuals say about: {topic}\n\n"
+                "Give a concise overview of the key technical points, steps, and commands involved. "
+                "Paraphrase the content; do not copy text directly from the documents."
+            )
+
         course = get_active_course()
-        result = self.ai.generate_content(
-            prompt,
-            course.system_instruction,
-            use_rag=True,
-            model_override=MODEL_PRO,
-        )
+        system_instr = course.system_instruction
+        # Always use RAG=True for content gathering regardless of global toggle.
+        # Retry with safe_prompt if model hits recitation guard.
+        try:
+            result = self.ai.generate_content(
+                primary_prompt, system_instr, use_rag=True, model_override=MODEL_PRO,
+            )
+        except Exception as e:
+            if "RECITATION_ERROR" in str(e):
+                logger.warning("[KA gather] Recitation error on primary prompt — retrying with safe prompt.")
+                try:
+                    result = self.ai.generate_content(
+                        safe_prompt, system_instr, use_rag=True, model_override=MODEL_FLASH,
+                    )
+                except Exception as e2:
+                    if "RECITATION_ERROR" in str(e2):
+                        raise ValueError(
+                            "RECITATION_ERROR — The model cannot reproduce enough content from the "
+                            "manuals for this topic without triggering the recitation guard. "
+                            "Try a more specific topic or rephrase your query."
+                        )
+                    raise e2
+            else:
+                raise e
         return result if isinstance(result, str) else "".join(result)
 
     def structure_ka(self, topic: str, rag_content: str) -> dict:
@@ -3601,7 +3633,14 @@ def render_ka_generator(ai_provider):
                     st.session_state["ka_clarifying_answers"] = []
                     st.session_state.pop("ka_data", None)
                 except Exception as e:
-                    st.error(f"Error gathering content: {e}")
+                    if "RECITATION_ERROR" in str(e):
+                        st.error(
+                            "⚠️ The model flagged this query for reproducing too much source text. "
+                            "Try using a more specific topic (e.g. 'CXL1002 error cause and resolution' "
+                            "instead of a broad category), or select fewer topics at once."
+                        )
+                    else:
+                        st.error(f"Error gathering content: {e}")
                     logger.error(f"KA RAG gather error: {e}", exc_info=True)
                     return
             st.rerun()
