@@ -3366,6 +3366,59 @@ class KAGeneratorService:
             return []  # Graceful fallback — proceed without clarifying questions
 
 
+KA_TYPE_OPTIONS = [
+    "New Knowledge Article",
+    "Knowledge Article Update",
+    "New FAQ",
+    "FAQ Update",
+    "Job Aid Update",
+    "Web Portal Notification",
+]
+
+KA_PROGRAM_OPTIONS = [
+    "CSRA Internal", "AWSBS", "AWS Cloud", "BSOC", "BICS", "BISA",
+    "C4ISR", "CES", "C-SHaRPS", "DCITA", "eMedNY", "FAA EMS 365",
+    "FAA FCS", "FAA UAS", "GCRM", "GovSOC", "LSE", "LSS", "NCMMIS",
+    "NES", "NFIP", "NYHX", "PTS", "RDC", "SRA", "WRAPS", "WTC",
+]
+
+KA_YES_NO = ["Yes", "No"]
+
+
+def _ka_set_combo(doc, label: str, combo_index: int, value: str):
+    """Set a Word comboBox content control value by alias label or fallback index."""
+    W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
+    combos = [
+        sdt for sdt in doc.element.findall('.//{%s}sdt' % W)
+        if sdt.find('.//{%s}comboBox' % W) is not None
+    ]
+    target = None
+    for sdt in combos:
+        sdtPr = sdt.find('{%s}sdtPr' % W)
+        if sdtPr is not None:
+            alias = sdtPr.find('{%s}alias' % W)
+            if alias is not None and alias.get('{%s}val' % W, '') == label:
+                target = sdt
+                break
+    if target is None and 0 <= combo_index < len(combos):
+        target = combos[combo_index]
+    if target is None:
+        return
+    sdtContent = target.find('{%s}sdtContent' % W)
+    if sdtContent is not None:
+        for t in sdtContent.iter('{%s}t' % W):
+            t.text = value
+            return
+        # No existing run — add one
+        from lxml import etree
+        p_el = sdtContent.find('{%s}p' % W)
+        if p_el is None:
+            p_el = etree.SubElement(sdtContent, '{%s}p' % W)
+        r_el = etree.SubElement(p_el, '{%s}r' % W)
+        t_el = etree.SubElement(r_el, '{%s}t' % W)
+        t_el.text = value
+
+
 def _cell_clear(cell):
     """Remove all content from a cell, leaving one empty first paragraph."""
     from docx.oxml.ns import qn
@@ -3397,7 +3450,7 @@ def _cell_p(cell, text: str = "", bold: bool = False,
     return para
 
 
-def build_ka_docx(ka_data: dict) -> bytes:
+def build_ka_docx(ka_data: dict, metadata: Optional[dict] = None) -> bytes:
     """
     Open KA_Template.docx, fill in AI-generated content with proper formatting.
 
@@ -3518,6 +3571,13 @@ def build_ka_docx(ka_data: dict) -> bytes:
             cell = t.rows[2].cells[0]
             _cell_clear(cell)
             _cell_p(cell, ka_data.get("keywords", ""), use_first=True)
+
+    # ── Table 5: Administrative dropdowns ────────────────────────────────
+    if metadata:
+        _ka_set_combo(doc, "Type",    0, metadata.get("type", "New Knowledge Article"))
+        _ka_set_combo(doc, "Program", 1, metadata.get("program", ""))
+        _ka_set_combo(doc, "",        2, metadata.get("job_aid_required", "No"))
+        _ka_set_combo(doc, "",        3, metadata.get("publish_to_portal", "No"))
 
     # ── Serialize to bytes ────────────────────────────────────────────────
     buffer = BytesIO()
@@ -3755,8 +3815,38 @@ def render_ka_generator(ai_provider):
         else:
             st.markdown(ka_data.get("user_solution", ""))
 
+    # ── Administrative metadata (populates Table 5 dropdowns) ────────────
+    st.subheader("Administrative Fields")
+    st.caption("These populate the dropdown fields in the template's change-log section.")
+    m1, m2 = st.columns(2)
+    with m1:
+        ka_type = st.selectbox(
+            "Type:", KA_TYPE_OPTIONS,
+            index=0, key="ka_meta_type"
+        )
+        job_aid = st.selectbox(
+            "Job Aid(s) Required:", KA_YES_NO,
+            index=1, key="ka_meta_job_aid"
+        )
+    with m2:
+        program = st.selectbox(
+            "Program:", KA_PROGRAM_OPTIONS,
+            index=0, key="ka_meta_program"
+        )
+        publish = st.selectbox(
+            "Publish to Portal:", KA_YES_NO,
+            index=1, key="ka_meta_publish"
+        )
+
+    metadata = {
+        "type": ka_type,
+        "program": program,
+        "job_aid_required": job_aid,
+        "publish_to_portal": publish,
+    }
+
     try:
-        docx_bytes = build_ka_docx(ka_data)
+        docx_bytes = build_ka_docx(ka_data, metadata=metadata)
         slug = re.sub(r'[^a-zA-Z0-9]+', '_', ka_topic)[:40]
         fname = f"KA_{slug}_{datetime.now().strftime('%Y%m%d')}.docx"
         st.download_button(
