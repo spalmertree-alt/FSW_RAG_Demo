@@ -3199,8 +3199,24 @@ Return a JSON object with EXACTLY these keys (no extra keys, no markdown fences)
   "title": "Concise KA title (e.g. 'How to Configure OSPF on Aruba CX 8325')",
   "category": "Primary product/system category (e.g. 'Aruba CX 8325 / PAN-OS')",
   "overview": "2-4 sentence agent-facing summary of what this KA covers and when to use it.",
-  "tier1_actions": ["Step 1 ...", "Step 2 ...", "..."],
-  "user_solution": "Full user-facing resolution. Include CLI commands verbatim using code blocks (```). Include numbered steps.",
+  "tier1_actions": [
+    {{
+      "title": "Action category title (e.g. 'Location Data')",
+      "sub_items": [
+        "First specific item to collect or verify",
+        "Second specific item to collect or verify"
+      ]
+    }}
+  ],
+  "user_solution_steps": [
+    {{
+      "step": "Step title or instruction (e.g. 'Verify interface status')",
+      "details": [
+        "Specific detail, sub-step, or CLI command",
+        "Another detail or expected output"
+      ]
+    }}
+  ],
   "op_category_t1": "e.g. Configuration / Fault-Failure / Installation / Troubleshooting",
   "op_category_t2": "e.g. Routing / Switching / VPN / Hardware / Software",
   "op_category_t3": "N/A or specific sub-category",
@@ -3213,9 +3229,16 @@ Return a JSON object with EXACTLY these keys (no extra keys, no markdown fences)
 
 Rules:
 - Only use information present in the RAG content. Do not add outside knowledge.
-- Keep tier1_actions as a JSON array of strings (each item is one step).
-- Keep user_solution as a single string with \\n for newlines.
-- If the RAG content does not cover a field, write "N/A".
+- tier1_actions MUST be an array of objects with "title" (string) and "sub_items" (array of strings).
+  Each object = one numbered action. Each sub_item = one bullet under that action.
+  Model the structure after this example from the template:
+    {{"title": "Location Data", "sub_items": ["Ship Class / Hull Number (no geographical info)"]}}
+    {{"title": "Contact Information", "sub_items": ["Email and phone for primary/secondary contacts", "Quarterdeck or Radio/ADP phone if available"]}}
+    {{"title": "System Error Details", "sub_items": ["Affected product name and category", "Component serial number, part number, and rack location"]}}
+- user_solution_steps MUST be an array of objects with "step" (string) and "details" (array of strings).
+  Each object = one numbered step. Each detail = one sub-bullet under that step.
+- If the RAG content does not cover a field, write "N/A" for string fields or [] for array fields.
+- Produce at minimum 5 tier1_actions and 3 user_solution_steps if content supports it.
 """
 
 
@@ -3225,21 +3248,38 @@ class KAGeneratorService:
     def __init__(self, ai_provider):
         self.ai = ai_provider
 
-    def gather_rag_content(self, topic: str) -> str:
-        """Call 1 (RAG ON): Retrieve all relevant manual content for the topic."""
-        prompt = (
-            f"Retrieve all information from the manuals about the following topic: {topic}\n\n"
-            "Include:\n"
-            "- Overview and description\n"
-            "- Step-by-step procedures or configuration steps\n"
-            "- CLI commands (copy verbatim)\n"
-            "- Prerequisites and requirements\n"
-            "- Troubleshooting steps and error codes\n"
-            "- Technical specifications and notes\n"
-            "- Any warnings or cautions\n\n"
-            "Organize the content clearly by sub-topic. "
-            "Include source citations (document name and page) for every piece of information."
-        )
+    def gather_rag_content(self, topic: str,
+                           multi_topics: Optional[List[str]] = None) -> str:
+        """Call 1 (RAG ON): Retrieve all relevant manual content for the topic(s)."""
+        if multi_topics and len(multi_topics) > 1:
+            topics_list = "\n".join(f"  - {t}" for t in multi_topics)
+            prompt = (
+                f"Retrieve all information from the manuals about each of these related topics:\n"
+                f"{topics_list}\n\n"
+                "For EACH topic include:\n"
+                "- Overview / description of what it is\n"
+                "- Error causes and symptoms (for error codes: severity, meaning, affected component)\n"
+                "- Step-by-step resolution or configuration steps\n"
+                "- CLI commands verbatim\n"
+                "- Prerequisites and requirements\n"
+                "- Warnings or cautions\n\n"
+                "Clearly label each topic's content with a heading. "
+                "Include source citations (document name and page) for every piece of information."
+            )
+        else:
+            prompt = (
+                f"Retrieve all information from the manuals about: {topic}\n\n"
+                "Include:\n"
+                "- Overview and description\n"
+                "- Step-by-step procedures or configuration steps\n"
+                "- CLI commands (copy verbatim)\n"
+                "- Prerequisites and requirements\n"
+                "- Troubleshooting steps and error codes\n"
+                "- Technical specifications and notes\n"
+                "- Any warnings or cautions\n\n"
+                "Organize the content clearly by sub-topic. "
+                "Include source citations (document name and page) for every piece of information."
+            )
         course = get_active_course()
         result = self.ai.generate_content(
             prompt,
@@ -3294,43 +3334,52 @@ class KAGeneratorService:
             return []  # Graceful fallback — proceed without clarifying questions
 
 
-def _ka_set_cell_text(cell, text: str, bold_first_line: bool = False):
-    """Clear a table cell and write text, preserving paragraph styling."""
-    from docx.shared import Pt
-    for para in cell.paragraphs:
-        for run in para.runs:
-            run.text = ""
-    # Use the first paragraph, add runs for each line
-    if not cell.paragraphs:
-        cell.add_paragraph()
-    first_para = cell.paragraphs[0]
-    lines = text.split("\n")
-    for i, line in enumerate(lines):
-        if i == 0:
-            run = first_para.add_run(line)
-            if bold_first_line:
-                run.bold = True
-        else:
-            new_para = cell.add_paragraph()
-            new_para.add_run(line)
+def _cell_clear(cell):
+    """Remove all content from a cell, leaving one empty first paragraph."""
+    from docx.oxml.ns import qn
+    tc = cell._tc
+    paras = tc.findall(qn('w:p'))
+    for p in paras[1:]:
+        tc.remove(p)
+    if paras:
+        first = paras[0]
+        for child in list(first):
+            tag = child.tag.split('}')[-1] if '}' in child.tag else child.tag
+            if tag not in ('pPr',):
+                first.remove(child)
+
+
+def _cell_p(cell, text: str = "", bold: bool = False,
+            indent_inches: float = 0.0, use_first: bool = False) -> Any:
+    """Add (or reuse first) paragraph in a cell with a single run."""
+    from docx.shared import Inches
+    if use_first and cell.paragraphs:
+        para = cell.paragraphs[0]
+    else:
+        para = cell.add_paragraph()
+    if indent_inches > 0:
+        para.paragraph_format.left_indent = Inches(indent_inches)
+    if text:
+        run = para.add_run(text)
+        run.bold = bold
+    return para
 
 
 def build_ka_docx(ka_data: dict) -> bytes:
     """
-    Open KA_Template.docx, fill in AI-generated content, return DOCX bytes.
+    Open KA_Template.docx, fill in AI-generated content with proper formatting.
 
     Table layout (0-indexed):
       0 — Header: Title / Category
-      1 — Notes to Agent (Internal): Overview + Tier I Actions
-      2 — Solution (User Facing)
+      1 — Notes to Agent (Internal): Overview + numbered Tier I Actions with sub-bullets
+      2 — Solution (Portal/User Facing): numbered steps with sub-bullet details
       3 — Routing Categories
       4 — Metatags / Keywords
-      5 — Change log / Job Aids  (left as template)
+      5 — Change log / Job Aids (left as template)
     """
     try:
         from docx import Document as DocxDocument
-        from docx.shared import Pt
-        import copy
+        from docx.shared import Inches
     except ImportError:
         raise ImportError("python-docx is required. Run: pip install python-docx")
 
@@ -3340,38 +3389,82 @@ def build_ka_docx(ka_data: dict) -> bytes:
     # ── Table 0: Title / Category ─────────────────────────────────────────
     if len(tables) > 0:
         t = tables[0]
-        # Row 1, col 2 → title value
         if len(t.rows) > 1 and len(t.rows[1].cells) > 2:
-            _ka_set_cell_text(t.rows[1].cells[2], ka_data.get("title", ""), bold_first_line=True)
-        # Row 2, cols 1-2 → category value (merged)
+            cell = t.rows[1].cells[2]
+            _cell_clear(cell)
+            _cell_p(cell, ka_data.get("title", ""), bold=True, use_first=True)
         if len(t.rows) > 2 and len(t.rows[2].cells) > 1:
-            _ka_set_cell_text(t.rows[2].cells[1], ka_data.get("category", ""))
+            cell = t.rows[2].cells[1]
+            _cell_clear(cell)
+            _cell_p(cell, ka_data.get("category", ""), use_first=True)
 
     # ── Table 1: Notes to Agent ───────────────────────────────────────────
     if len(tables) > 1:
         t = tables[1]
         if len(t.rows) > 1:
+            cell = t.rows[1].cells[0]
+            _cell_clear(cell)
+
+            # "Overview" heading
+            _cell_p(cell, "Overview", bold=True, use_first=True)
+            _cell_p(cell, " ")
+            _cell_p(cell, ka_data.get("overview", ""))
+            _cell_p(cell, " ")
+
+            # "Tier I Agent Action" heading
+            _cell_p(cell, "Tier I Agent Action", bold=True)
+            _cell_p(cell, " ")
+            _cell_p(cell, "Document the following information prior to escalation.")
+            _cell_p(cell, " ")
+
+            # Numbered actions with sub-bullets
             tier1 = ka_data.get("tier1_actions", [])
-            tier1_text = "\n".join(f"• {step}" for step in tier1) if tier1 else "N/A"
-            content = (
-                f"Overview\n\n{ka_data.get('overview', '')}\n\n"
-                f"Tier I Agent Action\n\n"
-                f"Document the following information prior to escalation or resolution:\n\n"
-                f"{tier1_text}"
-            )
-            _ka_set_cell_text(t.rows[1].cells[0], content)
+            for i, action in enumerate(tier1, 1):
+                if isinstance(action, dict):
+                    title = action.get("title", "")
+                    sub_items = action.get("sub_items", [])
+                else:
+                    title = str(action)
+                    sub_items = []
+                # Numbered title line
+                _cell_p(cell, f"{i}.\t{title}.", bold=True)
+                # Sub-bullets indented
+                for sub in sub_items:
+                    _cell_p(cell, f"\u2022\t{sub}", indent_inches=0.35)
 
     # ── Table 2: Solution ─────────────────────────────────────────────────
     if len(tables) > 2:
         t = tables[2]
         if len(t.rows) > 1:
-            solution = f"User Solution\n\n{ka_data.get('user_solution', '')}"
-            _ka_set_cell_text(t.rows[1].cells[0], solution)
+            cell = t.rows[1].cells[0]
+            _cell_clear(cell)
+
+            # "User Solution" heading
+            _cell_p(cell, "User Solution", bold=True, use_first=True)
+            _cell_p(cell, " ")
+
+            steps = ka_data.get("user_solution_steps", [])
+            if steps:
+                for i, step in enumerate(steps, 1):
+                    if isinstance(step, dict):
+                        step_text = step.get("step", "")
+                        details = step.get("details", [])
+                    else:
+                        step_text = str(step)
+                        details = []
+                    _cell_p(cell, f"{i}.\t{step_text}", bold=True)
+                    for detail in details:
+                        _cell_p(cell, f"\u2022\t{detail}", indent_inches=0.35)
+            else:
+                # Fallback if old-format user_solution string present
+                for line in ka_data.get("user_solution", "").split("\n"):
+                    if line.strip():
+                        _cell_p(cell, line.strip())
 
     # ── Table 3: Routing Categories ───────────────────────────────────────
     if len(tables) > 3:
         t = tables[3]
-        category_values = {
+        category_map = {
             2: ka_data.get("op_category_t1", ""),
             3: ka_data.get("op_category_t2", ""),
             4: ka_data.get("op_category_t3", "N/A"),
@@ -3380,20 +3473,47 @@ def build_ka_docx(ka_data: dict) -> bytes:
             7: ka_data.get("product_category_t3", "N/A"),
             8: ka_data.get("reason_for_escalation", "N/A"),
         }
-        for row_idx, value in category_values.items():
+        for row_idx, value in category_map.items():
             if row_idx < len(t.rows) and len(t.rows[row_idx].cells) > 1:
-                _ka_set_cell_text(t.rows[row_idx].cells[1], value)
+                cell = t.rows[row_idx].cells[1]
+                _cell_clear(cell)
+                _cell_p(cell, value, use_first=True)
 
     # ── Table 4: Metatags / Keywords ──────────────────────────────────────
     if len(tables) > 4:
         t = tables[4]
         if len(t.rows) > 2:
-            _ka_set_cell_text(t.rows[2].cells[0], ka_data.get("keywords", ""))
+            cell = t.rows[2].cells[0]
+            _cell_clear(cell)
+            _cell_p(cell, ka_data.get("keywords", ""), use_first=True)
 
     # ── Serialize to bytes ────────────────────────────────────────────────
     buffer = BytesIO()
     doc.save(buffer)
     return buffer.getvalue()
+
+
+def _suggest_combined_topic(topics: List[str]) -> str:
+    """Auto-generate a combined topic name from multiple selected topics."""
+    if not topics:
+        return ""
+    if len(topics) == 1:
+        return topics[0]
+    # Extract error/event codes (e.g. CXL1001, CXL1002, PA-1400)
+    codes: List[str] = []
+    for t in topics:
+        codes.extend(re.findall(r'[A-Za-z]{2,}\d+', t))
+    codes = list(dict.fromkeys(codes))  # deduplicate, preserve order
+    if len(codes) >= 2:
+        prefix = os.path.commonprefix([c.upper() for c in codes])
+        prefix = re.sub(r'\d+$', '', prefix).strip()  # trim trailing digits
+        if len(prefix) >= 2:
+            return f"{prefix} Error Code Reference ({', '.join(codes)})"
+        return f"Error Code Reference: {', '.join(codes)}"
+    # Generic fallback: first 5 words of each topic joined
+    short = [' '.join(t.split()[:5]) for t in topics]
+    joined = ' + '.join(short[:3])
+    return joined + (' + …' if len(topics) > 3 else '')
 
 
 def render_ka_generator(ai_provider):
@@ -3417,8 +3537,8 @@ def render_ka_generator(ai_provider):
     # ── STATE 1: Topic selection (no RAG content yet) ─────────────────────
     if not ka_rag:
         st.caption(
-            "Generates a draft KA using the technical manuals. "
-            "Topics are pre-populated from the query log above."
+            "Select one or more related topics from the query log to combine into a single KA, "
+            "or type a custom topic below."
         )
 
         log = st.session_state.get("query_log", [])
@@ -3426,31 +3546,54 @@ def render_ka_generator(ai_provider):
         if log:
             df_log = pd.DataFrame(log)
             counts = Counter(df_log["question"].str.strip().tolist())
-            suggested = [q for q, _ in counts.most_common(10)]
+            suggested = [q for q, _ in counts.most_common(20)]
 
-        topic_options = ["(type your own below)"] + suggested
-        selected = st.selectbox(
-            "Topic from query log:", options=topic_options, key="ka_topic_select"
+        selected_topics = st.multiselect(
+            "Topics from query log (select one or more to combine):",
+            options=suggested,
+            key="ka_topic_multiselect",
+            placeholder="Choose topics…",
         )
+
         custom = st.text_input(
-            "Or enter a custom topic:", key="ka_topic_input",
-            placeholder="e.g. Configure OSPF on Aruba CX 8325"
+            "Or enter a custom topic:",
+            key="ka_topic_input",
+            placeholder="e.g. CXL error codes reference",
         )
 
-        active_topic = custom.strip() if custom.strip() else (
-            selected if selected != "(type your own below)" else ""
-        )
+        # Determine active topic string and multi_topics list
+        if custom.strip():
+            active_topic = custom.strip()
+            multi_topics = None
+        elif len(selected_topics) >= 2:
+            # Auto-suggest a combined name
+            combined = _suggest_combined_topic(selected_topics)
+            active_topic = st.text_input(
+                "Combined topic name (editable):",
+                value=combined,
+                key="ka_combined_name",
+            ).strip() or combined
+            multi_topics = selected_topics
+        elif len(selected_topics) == 1:
+            active_topic = selected_topics[0]
+            multi_topics = None
+        else:
+            active_topic = ""
+            multi_topics = None
 
         if not active_topic:
             st.warning("Select or enter a topic to continue.")
             return
 
-        st.info(f"**Topic:** {active_topic}")
+        if multi_topics:
+            st.info(f"**Combined topic:** {active_topic}  \n**Covers:** {', '.join(multi_topics)}")
+        else:
+            st.info(f"**Topic:** {active_topic}")
 
         if st.button("📚 Gather Manual Content", type="primary", key="ka_gather_btn"):
             with st.spinner("Querying manuals via RAG… this may take 20–30 seconds."):
                 try:
-                    rag = ka_service.gather_rag_content(active_topic)
+                    rag = ka_service.gather_rag_content(active_topic, multi_topics=multi_topics)
                     questions = ka_service.detect_gaps(active_topic, rag)
                     st.session_state["ka_topic"] = active_topic
                     st.session_state["ka_rag_content"] = rag
@@ -3552,11 +3695,26 @@ def render_ka_generator(ai_provider):
         tier1 = ka_data.get("tier1_actions", [])
         if tier1:
             st.markdown("**Tier I Agent Actions**")
-            for step in tier1:
-                st.markdown(f"- {step}")
+            for i, action in enumerate(tier1, 1):
+                if isinstance(action, dict):
+                    st.markdown(f"**{i}. {action.get('title', '')}**")
+                    for sub in action.get("sub_items", []):
+                        st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;• {sub}")
+                else:
+                    st.markdown(f"{i}. {action}")
 
     with st.expander("🔧 User Solution (Portal Facing)", expanded=False):
-        st.markdown(ka_data.get("user_solution", ""))
+        steps = ka_data.get("user_solution_steps", [])
+        if steps:
+            for i, step in enumerate(steps, 1):
+                if isinstance(step, dict):
+                    st.markdown(f"**{i}. {step.get('step', '')}**")
+                    for detail in step.get("details", []):
+                        st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;• {detail}")
+                else:
+                    st.markdown(f"{i}. {step}")
+        else:
+            st.markdown(ka_data.get("user_solution", ""))
 
     try:
         docx_bytes = build_ka_docx(ka_data)
